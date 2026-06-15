@@ -4347,6 +4347,33 @@ private class DocGenMiscTests {
     }
 
     @IsTest
+    static void testCurrencyAutoRowLevelInheritsParent() {
+        // Row-level {\u2026:currency:auto=Field} inside a {#loop} is merged against the child
+        // item map, which lacks the parent's currency field. It must fall back to the
+        // top-level record map \u2014 while a per-row currency field still takes precedence.
+        Map<String, Object> data = new Map<String, Object>{
+            'Currency__c' => 'EUR',
+            'Lines' => new List<Object>{
+                new Map<String, Object>{ 'Amount' => 100 },
+                new Map<String, Object>{ 'Amount' => 250, 'Currency__c' => 'GBP' }
+            }
+        };
+        String result = DocGenService.processXmlForTest('{#Lines}[{Amount:currency:auto=Currency__c}]{/Lines}', data);
+        System.assert(result.contains('\u20AC100.00'), 'Row without own currency inherits parent EUR, got: ' + result);
+        System.assert(result.contains('\u00A3250.00'), 'Row with its own Currency__c=GBP wins, got: ' + result);
+    }
+
+    @IsTest
+    static void testCurrencyAutoRowLevelFallbackWhenNoSource() {
+        // No currency field on row or parent \u2192 $ fallback preserved.
+        Map<String, Object> data = new Map<String, Object>{
+            'Lines' => new List<Object>{ new Map<String, Object>{ 'Amount' => 5 } }
+        };
+        String result = DocGenService.processXmlForTest('{#Lines}[{Amount:currency:auto=Currency__c}]{/Lines}', data);
+        System.assert(result.contains('$5.00'), 'No currency anywhere should fall back to $, got: ' + result);
+    }
+
+    @IsTest
     static void testNumberLocale_deDE() {
         Map<String, Object> data = new Map<String, Object>{ 'Qty' => 1234567 };
         String result = DocGenService.processXmlForTest('{Qty:number:de_DE}', data);

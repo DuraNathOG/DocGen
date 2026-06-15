@@ -490,6 +490,28 @@ try {
     System.debug('SIBLING SECTIONS IN numPr PARAGRAPH (#112): FAIL — ' + e.getMessage());
 }
 
+// ===== Row-level {:currency:auto=Field} inherits the parent record's currency =====
+try {
+    Map<String, Object> d = new Map<String, Object>{
+        'Currency__c' => 'EUR',
+        'Lines' => new List<Object>{
+            new Map<String, Object>{ 'Amount' => 100 },
+            new Map<String, Object>{ 'Amount' => 250, 'Currency__c' => 'GBP' }
+        }
+    };
+    String rc = DocGenService.processXmlForTest('{#Lines}[{Amount:currency:auto=Currency__c}]{/Lines}', d);
+    if (rc.contains('€100.00') && rc.contains('£250.00')) {
+        pass++;
+        System.debug('ROW-LEVEL CURRENCY AUTO: PASS — ' + rc);
+    } else {
+        fail++;
+        System.debug('ROW-LEVEL CURRENCY AUTO: FAIL — ' + rc);
+    }
+} catch (Exception e) {
+    fail++;
+    System.debug('ROW-LEVEL CURRENCY AUTO: FAIL — ' + e.getMessage());
+}
+
 System.debug('========================================');
 System.debug(
     'E2E-07-SYNTAX3 — PASS: ' + pass + '  FAIL: ' + fail + (fail == 0 ? '  ALL TESTS PASSED' : '  FAILURES DETECTED')

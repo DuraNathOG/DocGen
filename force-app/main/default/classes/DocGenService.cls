@@ -3276,7 +3276,28 @@ global with sharing class DocGenService { // NOPMD AvoidGlobalModifier — globa
         return xml.substring(0, trPrTagEnd + 1) + '<w:tblHeader/>' + xml.substring(trPrTagEnd + 1);
     }
 
+    // Top-level record map for the current merge, captured by the outermost processXml
+    // call so {…:currency:auto[=Field]} on row-level tags (merged against a child item
+    // map inside a {#loop}) can fall back to the parent record's currency field.
+    private static Map<String, Object> currencyRootData;
+
     private static String processXml(String xml, Map<String, Object> data) {
+        // The outermost call owns the root-record context; nested/recursive calls
+        // (loop bodies, conditional branches) inherit it and must not overwrite it.
+        Boolean ownsCurrencyRoot = (currencyRootData == null);
+        if (ownsCurrencyRoot) {
+            currencyRootData = data;
+        }
+        try {
+            return processXmlInternal(xml, data);
+        } finally {
+            if (ownsCurrencyRoot) {
+                currencyRootData = null;
+            }
+        }
+    }
+
+    private static String processXmlInternal(String xml, Map<String, Object> data) {
         // Chart tag expansion: rewrites {Chart:rel:field:style:opts} into the
         // corresponding substitution. HTML templates get the CSS-bar snippet
         // (with embedded {#ChartBucket:...} loops, which feed through the
@@ -5058,6 +5079,18 @@ global with sharing class DocGenService { // NOPMD AvoidGlobalModifier — globa
      * trimmed, upper-cased value, or null when absent/blank.
      */
     private static String resolveCurrencyIso(Map<String, Object> data, String sourceField) {
+        // Prefer the current scope (a child row may carry its own currency field), then
+        // fall back to the top-level record map. Row-level tags inside a {#loop} are
+        // merged against the child item map, which won't carry the parent's currency
+        // field — currencyRootData lets {…:currency:auto[=Field]} still resolve it.
+        String iso = resolveCurrencyIsoFromMap(data, sourceField);
+        if (iso == null && currencyRootData != null) {
+            iso = resolveCurrencyIsoFromMap(currencyRootData, sourceField);
+        }
+        return iso;
+    }
+
+    private static String resolveCurrencyIsoFromMap(Map<String, Object> data, String sourceField) {
         if (data == null) {
             return null;
         }
