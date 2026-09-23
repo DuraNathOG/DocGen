@@ -2,7 +2,7 @@
 
 > **Branch:** `feat/drawing-pdf-merge` (off `main` @ v3.57.0, `62183ca`)
 > **Status:** DRAFT / RFC — design pending maintainer agreement on #412. Successor to closed PR #197 (`exp/document-markup`, closed as dormant 2026-08-10).
-> **Related:** #405 (template-defined supplemental PDFs — same concept, generation only), #407 (guided page fails open to the server re-render), #373 / #404 (sender UI work in flight).
+> **Related:** #405 (template-defined supplemental PDFs — same concept, generation only), #407 (guided page fails open to the server re-render), #413 (signing page renders below screen resolution; no zoom), #373 / #404 (sender UI work in flight).
 > **How to use this doc:** decisions in §4 are _proposed_ until the RFC is agreed. Work milestones in order; tick boxes and leave a one-line note on anything that changes.
 
 ---
@@ -62,7 +62,8 @@ Consequences:
 ### 3.2 Other constraints
 
 - **No browser at send time for Flow.** Apex can't merge third-party PDFs, so any combining happens in the **signer's** browser — or not at all (D2).
-- **Heavy drawings.** A 14 × A1 AutoCAD file with ~9,200 embedded image tiles takes pdf-lib 2.5 s to load and 8.7 s to copy on a desktop. Merging dozens of drawings in a phone browser is not viable.
+- **Heavy drawings.** A 14 × A1 AutoCAD file with ~9,200 embedded image tiles takes pdf-lib 2.5 s to load and 8.7 s to copy on a desktop, and PDF.js ~9.5 s **per page** to render (§5.3). Merging dozens of drawings in a phone browser is not viable; rendering needs placeholders and a bounded number of live pages.
+- **Legibility.** The signing viewer draws pages at fit-to-width in CSS pixels, ignoring `devicePixelRatio`, with no zoom (#413). At fit-to-width an A1 sheet gets 0.4–1.2 px/mm and an A3 sheet 0.8–2.5 px/mm — drawing text is unreadable. **Zoom that re-renders is an M1 requirement**, not a nice-to-have: a signer can't approve what they can't read.
 - **Fallback re-render** (§2) silently loses non-template pages; the page currently fails open (#407).
 - **Integrity:** nothing hashes the viewing PDF at send today. An approval must bind the exact drawing revisions.
 - **Decline can be hidden** (#367) — an approval request without Decline is only half a sign-off.
@@ -70,15 +71,15 @@ Consequences:
 
 ## 4. Proposed design decisions (pending RFC)
 
-| #   | Decision                      | Proposal                                                                                                                                                                                                                                                                                                                                                          |
-| --- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | Signed output                 | **Approval record**: the template pages + signatures + certificate, where the certificate **lists every attached document** (title, version, SHA-256). The drawings stay on the record untouched. The upload stays small regardless of drawing count or size. A combined "approved pack" is not proposed.                                                         |
-| D2  | Display                       | **No merge.** The signing page shows the template and each drawing as **separate documents in sequence** with an index ("Drawing 3 of 14"); each drawing is fetched and rendered **when opened**, pages rendered lazily. Signatures are stamped onto the template bytes as today. pdf-lib merging is not needed in M1.                                            |
-| D3  | Transport                     | **Per file, token + index.** Recommended: **T3** — one token-gated guest `@RestResource` (raw binary GET now, POST in M2); one call per drawing, smallest heap. Fallback if a guest REST surface is unacceptable: **T2** chunked remote actions (download only). Send-time caps: per attachment (proposed 20 MB) and per request (proposed 100 files) — to agree. |
-| D4  | Identity of what was approved | Pin each attachment by **ContentVersion Id** (`VersionData` is immutable per version) + **SHA-256** computed server-side. Browser re-checks the hash on fetch (defence in depth — the measured browser hash matched the server's).                                                                                                                                |
-| D5  | Entry points                  | Signature Sender LWC **and** the Flow action "Portwood: Create Signature Request" take the same thing: an ordered list of file Ids + position (before/after template).                                                                                                                                                                                            |
-| D6  | Failure mode                  | **Fail closed.** If any attachment can't be fetched or verified, signing is blocked with an actionable message. Both certificate builders (client and server) list the attachments, so even the fallback path produces a record that binds them.                                                                                                                  |
-| D7  | Scope                         | Single-template requests only in M1. No markup, no packets, no generation-only supplemental PDFs (that's #405 — share the data model and naming with it).                                                                                                                                                                                                         |
+| #   | Decision                      | Proposal                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Signed output                 | **Approval record**: the template pages + signatures + certificate, where the certificate **lists every attached document** (title, version, SHA-256). The drawings stay on the record untouched. The upload stays small regardless of drawing count or size. A combined "approved pack" is not proposed.                                                                                                                                                                                             |
+| D2  | Display                       | **No merge.** The signing page shows the template and each drawing as **separate documents in sequence** with an index ("Drawing 3 of 14"); each drawing is fetched and rendered **when opened**, pages rendered lazily. **Zoom re-renders** the visible page at `zoom × devicePixelRatio` (builds on the #413 fix); at high zoom only the visible region is rendered (canvas caps, e.g. iOS ~16.7 MP). Signatures are stamped onto the template bytes as today. pdf-lib merging is not needed in M1. |
+| D3  | Transport                     | **Per file, token + index.** Recommended: **T3** — one token-gated guest `@RestResource` (raw binary GET now, POST in M2); one call per drawing, smallest heap. Fallback if a guest REST surface is unacceptable: **T2** chunked remote actions (download only). Send-time caps: per attachment (proposed 20 MB) and per request (proposed 100 files) — to agree.                                                                                                                                     |
+| D4  | Identity of what was approved | Pin each attachment by **ContentVersion Id** (`VersionData` is immutable per version) + **SHA-256** computed server-side. Browser re-checks the hash on fetch (defence in depth — the measured browser hash matched the server's).                                                                                                                                                                                                                                                                    |
+| D5  | Entry points                  | Signature Sender LWC **and** the Flow action "Portwood: Create Signature Request" take the same thing: an ordered list of file Ids + position (before/after template).                                                                                                                                                                                                                                                                                                                                |
+| D6  | Failure mode                  | **Fail closed.** If any attachment can't be fetched or verified, signing is blocked with an actionable message. Both certificate builders (client and server) list the attachments, so even the fallback path produces a record that binds them.                                                                                                                                                                                                                                                      |
+| D7  | Scope                         | Single-template requests only in M1. No markup, no packets, no generation-only supplemental PDFs (that's #405 — share the data model and naming with it).                                                                                                                                                                                                                                                                                                                                             |
 
 ### 4.1 Data model (proposed — naming to agree with #405)
 
@@ -111,7 +112,7 @@ Goal: replace estimates with measurements and de-risk real drawings.
 - [x] **Samples:** a real issue set — 19 files, 0.5–15.85 MB, A1 + A3, AutoCAD / SOLIDWORKS / Adobe PDF Library. None encrypted, rotated or using object streams; all load in pdf-lib (§5.2). _Still wanted: a scanned drawing._
 - [x] **Transport ceilings** — existing endpoints (§5.1), T2 and T3 (§5.2).
 - [x] **Merge-for-display:** measured too heavy for large sets (§3.2) → replaced by the per-drawing viewer (D2).
-- [ ] **Viewer:** PDF.js on the signing page with the 14 × A1 file and a 14-file single-sheet set — time to first page and memory on desktop and a mid-range phone; confirms lazy rendering design. The page currently renders and keeps every page canvas (`DocGenSignaturePdf.page` ~`:963-988`).
+- [x] **Viewer:** PDF.js from the signing page on the real sets, desktop and phone widths, DPR 1 and 3 (§5.3) → zoom-with-re-render required; render cost is content-bound. _Still wanted: timings on a real mid-range phone (the measurements are from a 22-core desktop)._
 - [ ] Sender-side SHA-256 at send for a request with many / large files (sync vs a Queueable per file). A single 15.85 MB SHA-256 in synchronous Apex succeeded (§5.2).
 
 ### 5.1 M0 results — existing endpoints (2026-09-23)
@@ -161,6 +162,26 @@ Goal: replace estimates with measurements and de-risk real drawings.
 - Synchronous Apex: loading 15.85 MB `VersionData`, SHA-256 and base64 reached 38.8 MB heap with no exception.
 - A `ContentDistribution` `ContentDownloadUrl` fetched from the Site page: `TypeError: Failed to fetch` (CORS); `no-cors` gives an opaque response.
 
+### 5.3 M0 results — viewer (2026-09-23)
+
+**Method.** The signing page's own PDF.js build (`pdfjs4`, loaded from the page's `MODULE_URL`) on the Site, files fetched via the T3 spike endpoint, each page rendered with the page's `fitScale` rule (`min(1.6, (containerWidth − 28) / pageWidth)`, floor 320 px) at the stated device-pixel ratio. `intent: 'print'` was used because the hidden Browser pane pauses `requestAnimationFrame` (display-intent renders stall while hidden). Hardware: a 22-core desktop — phones will be slower.
+
+| Set                     | View / DPR  | Canvas width | px per mm | First page | All pages | Slowest page | Canvas memory if all kept |
+| ----------------------- | ----------- | ------------ | --------- | ---------- | --------- | ------------ | ------------------------- |
+| A3 CAD, 6 pp, 4.69 MB   | desktop / 1 | 798          | 1.9       | 1.2 s      | 2.7 s     | 1.1 s        | 10 MB                     |
+| A1 CAD, 14 pp, 12.95 MB | desktop / 1 | 798          | 0.9       | 9.3 s      | 24.8 s    | 9.2 s        | 24 MB                     |
+| CDE set, 14 × A1 single | desktop / 1 | 798          | 0.9       | 1.3 s      | 18.4 s    | 1.4 s        | 24 MB                     |
+| A3 CAD, 6 pp            | phone / 1   | 347          | 0.8       | 1.5 s      | 3.1 s     | 1.4 s        | 2 MB                      |
+| A1 CAD, 14 pp           | phone / 1   | 347          | 0.4       | 10.7 s     | 30.2 s    | 10.6 s       | 5 MB                      |
+| CDE set, 14 × A1 single | phone / 1   | 347          | 0.4       | 1.3 s      | 17.5 s    | 1.2 s        | 5 MB                      |
+| A3 CAD, 6 pp            | phone / 3   | 1041         | 2.5       | 1.2 s      | 2.7 s     | 1.1 s        | 18 MB                     |
+| A1 CAD, 14 pp           | phone / 3   | 1041         | 1.2       | 9.7 s      | 27.2 s    | 9.5 s        | 41 MB                     |
+| CDE set, 14 × A1 single | phone / 3   | 1041         | 1.2       | 1.4 s      | 15.8 s    | 1.3 s        | 41 MB                     |
+
+- **Render time is content-bound, not pixel-bound:** tripling DPR (9× pixels) did not slow any set. Sharp rendering costs memory, not time.
+- **Real signing page, phone emulation (Pixel 8, DPR 2):** page-1 canvas backing 320 × 226 in a 320 × 226 CSS box = 640 × 452 physical px → 0.5 backing px per physical px (#413).
+- Rough legibility target for 2.5 mm drawing text: ≥ 5 px/mm → an A1 page ≈ 4,200 px wide ≈ 12.5 MP (~50 MB RGBA) — so deep zoom must render the visible region only.
+
 ## 6. M1 — Attach record PDFs to a signature request (one PR, after RFC agreement)
 
 ### Backend
@@ -175,6 +196,8 @@ Goal: replace estimates with measurements and de-risk real drawings.
 ### Signing page (`DocGenSignaturePdf.page`)
 
 - [ ] Multi-document viewer: template + drawing index; fetch each drawing on open, verify SHA-256 (WebCrypto), render pages lazily; release canvases of drawings not in view.
+- [ ] DPR-aware rendering (the #413 fix — land it first, or as part of this PR) and **zoom that re-renders** the visible page (fit / + / − and pinch, debounced; soft render shown until the sharp one lands); visible-region rendering at high zoom.
+- [ ] "Rendering…" placeholder with progress for heavy pages (~10 s per page measured on the heaviest sample).
 - [ ] Approve available once the signer has opened every drawing? (product decision — see Q9).
 - [ ] `addCertificatePage` lists attachments (title, version, SHA-256), paginating for dozens.
 - [ ] Fail closed on any attachment error (no silent fallback).
