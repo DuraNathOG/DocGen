@@ -1,7 +1,7 @@
 # Drawing Approval — Sign Against Existing Record PDFs — Plan
 
 > **Branch:** `feat/drawing-pdf-merge` (off `main` @ v3.57.0, `62183ca`)
-> **Status:** DRAFT / RFC — design pending maintainer agreement. Successor to closed PR #197 (`exp/document-markup`, closed as dormant 2026-08-10).
+> **Status:** DRAFT / RFC — design pending maintainer agreement on #412. Successor to closed PR #197 (`exp/document-markup`, closed as dormant 2026-08-10).
 > **Related:** #405 (template-defined supplemental PDFs — same concept, generation only), #407 (guided page fails open to the server re-render), #373 / #404 (sender UI work in flight).
 > **How to use this doc:** decisions in §4 are _proposed_ until the RFC is agreed. Work milestones in order; tick boxes and leave a one-line note on anything that changes.
 
@@ -9,7 +9,12 @@
 
 ## 1. Use case
 
-A record carries one or more **existing PDFs** — typically engineering drawings (A3, often landscape, vector CAD exports or scans, **0.1–5 MB each, several per record**). We want to send them to an **external customer via the normal emailed signing link** so the customer can **approve (sign) or decline (with reason)**. A later milestone (M2) lets the customer **redline** the drawings.
+A record carries one or more **existing PDFs** — engineering drawings (A1 and A3, landscape, AutoCAD / SOLIDWORKS / Adobe exports). We want to send them to an **external customer via the normal emailed signing link** so the customer can **approve (sign) or decline (with reason)**. A later milestone (M2) lets the customer **redline** the drawings.
+
+Two shapes, both required (measured on a real issue set, §5.2):
+
+- **Many single-sheet files per approval.** Document control on CDE-managed projects (high-rise, rail) forbids multi-page PDFs, so one approval can cover **dozens** of ~1 MB single-sheet files (sample: 14 × A1).
+- **Large multi-page files.** Elsewhere a drawing set is one PDF — samples up to **~16 MB** and **14 × A1** pages in one file.
 
 Constraints from the use case:
 
@@ -29,28 +34,35 @@ Constraints from the use case:
 | Finalize (fallback)                        | If the signer has no session marks or the source didn't load, the page calls `saveSignature` (`DocGenSignaturePdf.page` ~`:3173`) → `TemplateSignaturePdfQueueable` **re-renders from the template** (`DocGenSignatureService.cls:1486`, `:1791`). Anything not from the template is dropped. See #407.                                                                           |
 | Decline                                    | `declineSignature` (`DocGenSignatureController.cls:1826`) — reason text, status Declined, **no document produced**. Can be hidden org-wide (`Signature_Hide_Decline__c`) or per template (`Hide_Signer_Decline__c`); enforced server-side (#367).                                                                                                                                 |
 | Signer form fields                         | text / number / date / checkbox / picklist, written back to the record at completion (`DocGenFieldWritebackService`). Future vehicle for richer outcomes (e.g. "approved as noted").                                                                                                                                                                                              |
+| Guest file access                          | Guests can't use `/sfc/servlet.shepherd/` URLs (`DocGenSignatureController.cls:2199`); files reach the page as base64 through token-gated remote actions. The legacy path creates a view-only `ContentDistribution` preview (`getOrCreatePublicLink`, `:844`). No `@RestResource` exists in the package.                                                                          |
 | PDF libraries                              | `pdflib` static resource (pdf-lib 1.17.1) — already loaded by the signing page (`DocGenSignaturePdf.page:23`). `pdfjs4` (PDF.js 4.7.76) for rendering. The Runner's `docGenPdfMerger.js` is a regex byte-scanner (no object streams, no inherited `/Rotate`/`/CropBox`) — **not suitable for CAD/scanner PDFs**. `DocGenPdfMerger.cls` is Portwood-output-only by its own header. |
 
 ## 3. Constraints that shape the design
 
 ### 3.1 Size — the dominant constraint
 
-Guests can't hit file URLs; every file moves through a token-gated Visualforce remote action as base64. **Measured in M0** (§5.1) as an anonymous guest on the real signing page, calling the package's real endpoints:
+**Measured** (§5.1, §5.2) as an anonymous guest on the Site. Existing endpoints first, then two candidate transports (throwaway spike code, not in this branch):
 
-| Path                                              | Works up to        | Fails at | Binding limit                                                     |
-| ------------------------------------------------- | ------------------ | -------- | ----------------------------------------------------------------- |
-| Guest download (`getSourcePdfBase64`, `:2397`)    | **5.5 MB** / file  | 5.75 MB  | VF remoting **response** cap — "exceeded maximum of 15 MB"        |
-| Guest upload (`saveCompositedSignedPdf`, `:2692`) | **2.95 MB** / call | 3.0 MB   | VF remoting **request** cap (~4 MiB of base64) — "Input too long" |
+| Path                                                                | Works up to                          | Fails at | Binding limit                                                     |
+| ------------------------------------------------------------------- | ------------------------------------ | -------- | ----------------------------------------------------------------- |
+| Existing download `getSourcePdfBase64` (one remote action)          | **5.5 MB** / file                    | 5.75 MB  | VF remoting **response** cap — "exceeded maximum of 15 MB"        |
+| Existing upload `saveCompositedSignedPdf` (one remote action)       | **2.95 MB** / call                   | 3.0 MB   | VF remoting **request** cap (~4 MiB of base64) — "Input too long" |
+| Candidate T2 — chunked remote-action download (4 MB aligned slices) | **15.85 MB** tested (4 calls, 5.1 s) | —        | none hit; each call re-loads + re-encodes the whole file          |
+| Candidate T3 — guest `@RestResource`, raw binary GET                | **15.85 MB** tested (1 call, 1.3 s)  | —        | none hit                                                          |
+| Candidate T3 — guest `@RestResource`, raw binary POST               | **16 MB** tested (1 call, 4.0 s)     | —        | none hit                                                          |
 
-Apex heap was **not** the binding limit on either path (an earlier ~2–2.5 MB heap estimate was wrong). Consequences:
+**Apex heap is not enforced on these paths in practice.** Documented synchronous heap is 6 MB; measured `Limits.getHeapSize()` reached **38.8 MB** in synchronous Apex (15.85 MB `VersionData` + base64) and **21–42 MB per call** in guest chunked downloads, with no exception. The existing `getSourcePdfBase64` already relies on this for any source above ~2.5 MB. T3 has the smallest footprint (GET ≈ 1× file; POST body not counted — ~7.5 KB). This is undocumented platform behaviour — see Q8.
 
-- **Download is fine per drawing** — the existing remote-action pattern covers 0.1–5 MB drawings (the real 4.69 MB drawing: 921 ms).
-- **Upload is the tight direction.** A single combined signed PDF can't exceed 2.95 MB — one 4.69 MB drawing already breaks it, several certainly do. This drives D1.
-- M2's per-drawing marked-up upload (up to ~5 MB) also exceeds the upload cap — see §7.3.
+Consequences:
+
+- **Real drawings exceed the existing single-call download** (6.7, 13 and 16 MB samples) — M1 needs T2 or T3.
+- **Upload stays the tight direction for remote actions** (2.95 MB). A single combined signed PDF is not viable over remoting — this drives D1. T3 removes the upload limit, which is what M2 needs.
+- `ContentDistribution` download URLs are **CORS-blocked** from the Site page (opaque response), so public links are not a transport for page script.
 
 ### 3.2 Other constraints
 
-- **No browser at send time for Flow.** Apex can't merge third-party PDFs, so the merge can't happen at send (which is what #197 did — in the sender's browser). It has to happen in the **signer's** browser.
+- **No browser at send time for Flow.** Apex can't merge third-party PDFs, so any combining happens in the **signer's** browser — or not at all (D2).
+- **Heavy drawings.** A 14 × A1 AutoCAD file with ~9,200 embedded image tiles takes pdf-lib 2.5 s to load and 8.7 s to copy on a desktop. Merging dozens of drawings in a phone browser is not viable.
 - **Fallback re-render** (§2) silently loses non-template pages; the page currently fails open (#407).
 - **Integrity:** nothing hashes the viewing PDF at send today. An approval must bind the exact drawing revisions.
 - **Decline can be hidden** (#367) — an approval request without Decline is only half a sign-off.
@@ -58,15 +70,15 @@ Apex heap was **not** the binding limit on either path (an earlier ~2–2.5 MB h
 
 ## 4. Proposed design decisions (pending RFC)
 
-| #   | Decision                      | Proposal                                                                                                                                                                                                                                                                                                                                                                                 |
-| --- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | Signed output                 | **Approval record**: the template pages + signatures + certificate, where the certificate **lists every attached document** (title, version, SHA-256, page range as viewed). The drawings stay on the record untouched. Upload stays small regardless of drawing count/size. A single combined "approved pack" is an optional later extension, only viable under the 2.95 MB upload cap. |
-| D2  | Where the merge happens       | **At view time, in the signer's browser**, with pdf-lib `copyPages` (already loaded on the page). The merged document is for **display**; signatures are stamped onto the **template-only** bytes (anchors mapped back via the page provenance map).                                                                                                                                     |
-| D3  | Transport                     | **Per file**, never whole-pack, using the **existing token-gated remote-action pattern** (`getSourcePdfBase64` shape) — measured to 5.5 MB per file, so no chunking or REST in M1. Send-time cap **5 MB per attachment**.                                                                                                                                                                |
-| D4  | Identity of what was approved | Pin each attachment by **ContentVersion Id** (`VersionData` is immutable per version) + **SHA-256** computed server-side. Browser re-checks the hash before display (defence in depth).                                                                                                                                                                                                  |
-| D5  | Entry points                  | Signature Sender LWC **and** the Flow action "Portwood: Create Signature Request" take the same thing: an ordered list of file Ids + position (before/after template).                                                                                                                                                                                                                   |
-| D6  | Failure mode                  | **Fail closed.** If any attachment can't be fetched, verified or merged, signing is blocked with an actionable message. Both certificate builders (client and server) list the attachments, so even the fallback path produces a record that binds them.                                                                                                                                 |
-| D7  | Scope                         | Single-template requests only in M1. No markup, no packets, no generation-only supplemental PDFs (that's #405 — share the data model and naming with it).                                                                                                                                                                                                                                |
+| #   | Decision                      | Proposal                                                                                                                                                                                                                                                                                                                                                          |
+| --- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Signed output                 | **Approval record**: the template pages + signatures + certificate, where the certificate **lists every attached document** (title, version, SHA-256). The drawings stay on the record untouched. The upload stays small regardless of drawing count or size. A combined "approved pack" is not proposed.                                                         |
+| D2  | Display                       | **No merge.** The signing page shows the template and each drawing as **separate documents in sequence** with an index ("Drawing 3 of 14"); each drawing is fetched and rendered **when opened**, pages rendered lazily. Signatures are stamped onto the template bytes as today. pdf-lib merging is not needed in M1.                                            |
+| D3  | Transport                     | **Per file, token + index.** Recommended: **T3** — one token-gated guest `@RestResource` (raw binary GET now, POST in M2); one call per drawing, smallest heap. Fallback if a guest REST surface is unacceptable: **T2** chunked remote actions (download only). Send-time caps: per attachment (proposed 20 MB) and per request (proposed 100 files) — to agree. |
+| D4  | Identity of what was approved | Pin each attachment by **ContentVersion Id** (`VersionData` is immutable per version) + **SHA-256** computed server-side. Browser re-checks the hash on fetch (defence in depth — the measured browser hash matched the server's).                                                                                                                                |
+| D5  | Entry points                  | Signature Sender LWC **and** the Flow action "Portwood: Create Signature Request" take the same thing: an ordered list of file Ids + position (before/after template).                                                                                                                                                                                            |
+| D6  | Failure mode                  | **Fail closed.** If any attachment can't be fetched or verified, signing is blocked with an actionable message. Both certificate builders (client and server) list the attachments, so even the fallback path produces a record that binds them.                                                                                                                  |
+| D7  | Scope                         | Single-template requests only in M1. No markup, no packets, no generation-only supplemental PDFs (that's #405 — share the data model and naming with it).                                                                                                                                                                                                         |
 
 ### 4.1 Data model (proposed — naming to agree with #405)
 
@@ -83,30 +95,28 @@ New child object, working name `DocGen_Signature_Attachment__c` (master-detail �
 | `Position__c`            | Picklist  | `Before` / `After` the template pages |
 | `Sort_Order__c`          | Number    |                                       |
 
-A child object (rather than a JSON field on the request) gives FLS, queryability, per-attachment status, and room for M2 (per-drawing markup output) without reshaping.
+A child object (rather than a JSON field on the request) gives FLS, queryability, per-attachment status, dozens of rows without a field-length ceiling, and room for M2 (per-drawing markup output) without reshaping.
 
 ### 4.2 Flow of a request
 
-1. **Send** (LWC or Flow) → `createGuidedPdfSignatureRequest` (options/overload TBD) validates each file in `USER_MODE`: sender can read it, it's a PDF, it's **linked to the related record**, size ≤ cap. Resolves ContentDocument → latest ContentVersion and pins it, computes SHA-256, inserts attachment rows. Everything else (template render, placements, signers, emails, expiry, verification) is unchanged — single-phase send, no Draft orphans.
-2. **Signer opens the link** → init response includes an attachment **manifest** (index, title, version, size, position, sha256 — no record Ids). The page fetches the template viewing PDF (existing) and each attachment by **token + index** (server resolves the CV from the request — never client-supplied), verifies SHA-256, merges with pdf-lib, builds the provenance map, renders, locates anchors (on template pages) as today.
-3. **Approve** → `compositeAndFinalize` stamps onto the template-only bytes; `addCertificatePage` lists the attachments; `saveCompositedSignedPdf` stores the approval record on the related record (unchanged).
+1. **Send** (LWC or Flow) → `createGuidedPdfSignatureRequest` (options/overload TBD) validates each file in `USER_MODE`: sender can read it, it's a PDF, it's **linked to the related record**, size ≤ cap, count ≤ cap. Resolves ContentDocument → latest ContentVersion and pins it, computes SHA-256, inserts attachment rows. Everything else (template render, placements, signers, emails, expiry, verification) is unchanged — single-phase send, no Draft orphans.
+2. **Signer opens the link** → init response includes an attachment **manifest** (index, title, version, size, position, sha256 — no record Ids). The page loads the template viewing PDF (existing) and shows the drawing index; each drawing is fetched by **token + index** when opened (server resolves the CV from the request — never client-supplied), hash-checked, and rendered page by page. Anchors are located on the template pages as today.
+3. **Approve** → `compositeAndFinalize` stamps onto the template bytes; `addCertificatePage` lists the attachments (multi-page when there are dozens); `saveCompositedSignedPdf` stores the approval record on the related record (unchanged).
 4. **Decline** → existing `declineSignature` with reason (unchanged).
 
-## 5. M0 — Spike (do first; ~1 day)
+## 5. M0 — Spike
 
-Goal: replace the estimates in §3.1 with measurements and de-risk pdf-lib on real drawings.
+Goal: replace estimates with measurements and de-risk real drawings.
 
-- [ ] **Samples:** real drawings — CAD vector export + scan; ~0.1 / 1 / 3 / 5 MB; A3 landscape; one using `/Rotate`; one permissions-restricted (encrypted) if the CAD export does that. _So far: one real AutoCAD 2021 plot (4.69 MB, 6× A3 landscape, no `/Rotate`, unencrypted, no object streams, 88 images) — pdf-lib `copyPages` + save OK in 59 ms (Node). More samples, incl. a scan, pending._
-- [ ] **Merge:** in the VF signing-page context, pdf-lib `copyPages` of template viewing PDF + samples. Check: rotation/crop preserved; template `@@SIG-n@@` anchors still found by PDF.js; behaviour on encrypted input (pdf-lib can't decrypt — must fail cleanly); time + memory on desktop and a mid-range phone.
-- [ ] **Viewer:** PDF.js with 10+ A3 pages — the page currently renders and keeps every page canvas (`DocGenSignaturePdf.page` ~`:963-988`); decide whether lazy rendering is needed.
-- [x] **Transport ceilings** for T1 (existing base64 `@RemoteAction`) — results in §5.1. T1 suffices for M1 downloads.
-- [ ] Deferred to M2 (upload of marked-up drawings > 2.95 MB): T2 — chunked remote actions; T3 — guest `@RestResource` on the Site streaming raw bytes (new surface type for the package → security review + maintainer call).
-- [ ] Sender-side SHA-256 at send: confirm hashing several ~5 MB files in one synchronous send stays within heap (or hash per file in a Queueable).
-- [x] **Output:** measured limits (§5.1) → T1 for M1, send-time cap 5 MB per attachment, D1 confirmed.
+- [x] **Samples:** a real issue set — 19 files, 0.5–15.85 MB, A1 + A3, AutoCAD / SOLIDWORKS / Adobe PDF Library. None encrypted, rotated or using object streams; all load in pdf-lib (§5.2). _Still wanted: a scanned drawing._
+- [x] **Transport ceilings** — existing endpoints (§5.1), T2 and T3 (§5.2).
+- [x] **Merge-for-display:** measured too heavy for large sets (§3.2) → replaced by the per-drawing viewer (D2).
+- [ ] **Viewer:** PDF.js on the signing page with the 14 × A1 file and a 14-file single-sheet set — time to first page and memory on desktop and a mid-range phone; confirms lazy rendering design. The page currently renders and keeps every page canvas (`DocGenSignaturePdf.page` ~`:963-988`).
+- [ ] Sender-side SHA-256 at send for a request with many / large files (sync vs a Queueable per file). A single 15.85 MB SHA-256 in synchronous Apex succeeded (§5.2).
 
-### 5.1 M0 results — transport (2026-09-23)
+### 5.1 M0 results — existing endpoints (2026-09-23)
 
-**Method.** Scratch org built by `scripts/qa/setup-org.sh` conventions (`--no-namespace`; a `portwoodglobal`-namespaced org needs the project Dev Hub — remoting and heap limits are namespace-independent), full `force-app` deploy, a classic Salesforce Site serving `DocGenSignaturePdf` with `DocGen_Guest_Signature` on its guest user. Test files: valid PDFs padded with random (incompressible) bytes to exact sizes, plus the real 4.69 MB drawing, attached to an Account. One `DocGen_Signature_Request__c` + `DocGen_Signer__c` per file with `Source_Document_Id__c` = that file. From an anonymous browser session on the Site, the real `getSourcePdfBase64` and `saveCompositedSignedPdf` were invoked via `Visualforce.remoting.Manager.invokeAction` (`buffer:false`, 120 s timeout).
+**Method.** Scratch org built by `scripts/qa/setup-org.sh` conventions (`--no-namespace`; a `portwoodglobal`-namespaced org needs the project Dev Hub — remoting and heap limits are namespace-independent), full `force-app` deploy, a classic Salesforce Site serving `DocGenSignaturePdf` with `DocGen_Guest_Signature` on its guest user. Test files: valid PDFs padded with random (incompressible) bytes to exact sizes, plus a real 4.69 MB drawing, attached to an Account. One `DocGen_Signature_Request__c` + `DocGen_Signer__c` per file with `Source_Document_Id__c` = that file. From an anonymous browser session on the Site, the real `getSourcePdfBase64` and `saveCompositedSignedPdf` were invoked via `Visualforce.remoting.Manager.invokeAction` (`buffer:false`, 120 s timeout).
 
 | File size (MB)     | Download `getSourcePdfBase64` | Upload `saveCompositedSignedPdf` |
 | ------------------ | ----------------------------- | -------------------------------- |
@@ -126,44 +136,68 @@ Goal: replace the estimates in §3.1 with measurements and de-risk pdf-lib on re
 - Upload failures: `Input too long. [1, 149]` — rejected by the platform before Apex runs (signer/request left untouched). 2.95 MB = 4,124,400 base64 chars passed; 3.0 MB = 4,194,304 chars failed.
 - Every successful upload was verified server-side: a full-size file on the related record and the request `Signed`.
 
+### 5.2 M0 results — real drawings and candidate transports (2026-09-23)
+
+**Real issue set** (analysed with the package's `pdflib` resource in Node):
+
+| Shape                                   | Files | Size                      | Notes                                                                                                                    |
+| --------------------------------------- | ----- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| CDE single-sheet set, A1, Adobe PDF Lib | 14    | 0.58–0.93 MB (11.3 total) | One approval covers all 14. Trivial per file.                                                                            |
+| Multi-page AutoCAD, 14 × A1             | 1     | 12.95 MB                  | ~9,200 embedded image tiles + 6 MB of vector content; pdf-lib load 2.5 s, copy 8.7 s.                                    |
+| Single-sheet AutoCAD, A3                | 1     | 6.74 MB                   | Dense vector linework (6 MB of content streams).                                                                         |
+| Multi-page SOLIDWORKS, 5 × A3           | 1     | 15.85 MB                  | Two lossless ~4,300 × 3,500 renders = 15 MB — an export-setting issue (shaded views), being reviewed by the design team. |
+| Others (AutoCAD / SOLIDWORKS, A3)       | 3     | 0.51–1.80 MB              | —                                                                                                                        |
+
+**Transports** — throwaway spike classes deployed to the scratch org only (key-gated, not in this branch), called from an anonymous session on the Site:
+
+| File     | T2 chunked remote action (4 MB slices) | T3 guest REST GET (binary) |
+| -------- | -------------------------------------- | -------------------------- |
+| 6.74 MB  | 2 calls, 1.7 s, heap 21 MB/call        | 1 call, 0.5 s, heap 7 MB   |
+| 12.95 MB | 4 calls, 4.6 s, heap 36 MB/call        | 1 call, 0.8 s, heap 13 MB  |
+| 15.85 MB | 4 calls, 5.1 s, heap 42 MB/call        | 1 call, 1.3 s, heap 16 MB  |
+
+- T3 POST (raw binary upload): 3 / 5 / 8 / 12 / 16 MB all stored **byte-exact** on the related record; 1.4–4.0 s; heap ~7.5 KB.
+- Integrity: browser-computed SHA-256 of every reassembled / downloaded file matched the server's SHA-256 of the original.
+- Synchronous Apex: loading 15.85 MB `VersionData`, SHA-256 and base64 reached 38.8 MB heap with no exception.
+- A `ContentDistribution` `ContentDownloadUrl` fetched from the Site page: `TypeError: Failed to fetch` (CORS); `no-cors` gives an opaque response.
+
 ## 6. M1 — Attach record PDFs to a signature request (one PR, after RFC agreement)
 
 ### Backend
 
 - [ ] `DocGen_Signature_Attachment__c` + fields + permission sets (Admin/User as appropriate; **no guest object access** — token-keyed `SYSTEM_MODE` only).
-- [ ] Send: attachments on the canonical `createGuidedPdfSignatureRequest` (options DTO vs another overload — agree in RFC); validation per §4.2; SHA-256 (sync under cap, else async).
+- [ ] Send: attachments on the canonical `createGuidedPdfSignatureRequest` (options DTO vs another overload — agree in RFC); validation per §4.2; size + count caps; SHA-256 (sync vs Queueable per file — M0 item).
 - [ ] Flow: `DocGenSignatureFlowAction.Request` gains `global` `@InvocableVariable`s `attachedDocumentIds` (`List<String>`, CV or CD Ids) and `attachedDocumentPosition` (`Before` default). Verify in a namespaced org.
-- [ ] Guest: manifest on the init response; a token + index attachment fetch remote action with the same shape and gates as `getSourcePdfBase64` (measured to 5.5 MB) — token format, `assertSignerReadable`, expiry, terminal state, PIN-verified when required.
+- [ ] Guest: manifest on the init response; attachment fetch by **token + index** per D3 (T3 REST GET, or T2 chunked remote action), with the same gates as `getSourcePdfBase64` — token format, `assertSignerReadable`, expiry, terminal state, PIN-verified when required. If T3: `global` REST class, guest class access in `DocGen_Guest_Signature`, namespaced URL (`/services/apexrest/portwoodglobal/...`), no caching headers.
 - [ ] Server-path certificate (`DocGenSignatureService` verification block) lists attachments (D6).
 - [ ] Coordinate the fail-closed guard with #407.
 
 ### Signing page (`DocGenSignaturePdf.page`)
 
-- [ ] Fetch attachments (parallel), verify SHA-256 (WebCrypto), merge with pdf-lib in manifest order, build provenance map `{mergedPage → attachmentIndex | 'template', sourcePage, rotation, cropBox}`.
-- [ ] Anchor hits mapped to template-only page indices; `compositeAndFinalize` stamps onto template-only bytes.
-- [ ] `addCertificatePage` lists attachments (title, version, SHA-256, page range as viewed).
+- [ ] Multi-document viewer: template + drawing index; fetch each drawing on open, verify SHA-256 (WebCrypto), render pages lazily; release canvases of drawings not in view.
+- [ ] Approve available once the signer has opened every drawing? (product decision — see Q9).
+- [ ] `addCertificatePage` lists attachments (title, version, SHA-256), paginating for dozens.
 - [ ] Fail closed on any attachment error (no silent fallback).
-- [ ] Lazy page rendering if M0 says so; simple "Drawing 1 of N" navigation (nice-to-have).
 
 ### Sender LWC (`docGenSignatureSender`)
 
-- [ ] Record-PDF picker (reuse `DocGenController.getRecordPdfs`, `:5663`; add size), order + before/after, size warnings. Keep the change small — #373 is reworking this component.
+- [ ] Record-PDF picker (reuse `DocGenController.getRecordPdfs`, `:5663`; add size), **select all**, order + before/after, size/count warnings. Keep the change small — #373 is reworking this component.
 - [ ] Warn when Decline is hidden on the template/org.
 
 ### Tests & gates
 
-- [ ] Apex: send validation (no access, not a PDF, not linked to record, over cap, deleted file); guest IDOR (token A cannot read request B's attachments), index out of range, expired, declined/terminal, PIN not verified; Flow action; certificate content.
+- [ ] Apex: send validation (no access, not a PDF, not linked to record, over size/count cap, deleted file); guest IDOR (token A cannot read request B's attachments), index out of range, expired, declined/terminal, PIN not verified; Flow action; certificate content.
 - [ ] Content-correctness (signing has none today — see repo `CLAUDE.md` "Subsystem caution"): an end-to-end check that the stored approval PDF's certificate lists every attachment with the right SHA-256, and contains no unresolved `@@SIG-` token (ties to #407).
-- [ ] Adversarial guest-security review of the new endpoint(s).
+- [ ] Adversarial guest-security review of the new endpoint(s) — mandatory if T3 (first guest REST surface).
 - [ ] `npm run qa`; namespaced pre-flight org (`RunLocalTests`, no perm set assigned); prettier; Code Analyzer.
 - [ ] UserGuide section + CHANGELOG entry.
 
 ## 7. Guardrails so M1 doesn't box in M2 (markup / redline)
 
-1. **pdf-lib only** for merging and flattening — never the regex merger. M2 needs `/Rotate`/`/CropBox` handling and vector drawing.
-2. **Provenance map is first-class.** M2 marks are keyed to _(attachment, source page)_ in unrotated page space, not to merged-page indices.
-3. **Upload is M2's hard limit.** M2 returns a marked-up copy **per drawing** (up to ~5 MB), which exceeds the measured 2.95 MB remote-action request cap. M2 needs chunked upload (T2) or a guest REST endpoint (T3) — spike both at the start of M2. M1 must not assume drawings ever travel back in one call.
-4. **Vector markup, not raster.** Raster overlays at A3 resolution inflate files past the per-file ceiling (the limit #197 hit).
+1. **pdf-lib only** for flattening markup (M2) — never the regex merger. M2 needs `/Rotate`/`/CropBox` handling and vector drawing. M1 itself does not merge.
+2. **Per-drawing identity is first-class.** M2 marks are keyed to _(attachment, source page)_ in unrotated page space — the D2 viewer already works per drawing.
+3. **One transport both ways.** M2 returns a marked-up copy **per drawing** (up to ~16 MB). Remote actions cap uploads at 2.95 MB; T3 POST measured to 16 MB. Choosing T3 in M1 means M2 adds a POST on the same resource; choosing T2 means M2 still needs an upload design.
+4. **Vector markup, not raster.** Raster overlays at A1/A3 resolution inflate files (the limit #197 hit).
 5. **Pinned CV + SHA-256** lets a marked-up return prove which revision was marked.
 6. **Decline produces no document today.** M2's "decline with markup" needs one — don't bake in "decline = no output".
 7. `hitToPdfRect` ignores `/Rotate` and `/CropBox` — harmless for M1 (anchors are on template pages), must be fixed for M2.
@@ -171,13 +205,15 @@ Goal: replace the estimates in §3.1 with measurements and de-risk pdf-lib on re
 
 ## 8. Open questions for the maintainer
 
-1. **Output (D1):** approval record binding attachments by hash — or do you want a single combined signed PDF (only viable when the total is under the 2.95 MB upload cap)?
-2. **Transport — M2 only:** for uploading marked-up drawings above the 2.95 MB request cap, chunked remote actions (T2) or a guest Apex REST endpoint (T3)? (M1 needs neither — §5.1.)
+1. **Output (D1):** approval record binding attachments by hash — OK?
+2. **Transport (D3) — needed in M1:** a token-gated guest `@RestResource` (T3, recommended — one call per file, also solves M2 uploads) or chunked remote actions (T2, no new surface type, download only)?
 3. **Data model:** child object vs JSON field; one model shared with #405's supplemental PDFs? API naming (frozen forever).
 4. **API shape:** options DTO for `createGuidedPdfSignatureRequest` vs another overload?
 5. **Linkage rule:** require attachments to be linked to the related record (proposed: yes)?
 6. **Decline:** block or warn when Decline is hidden on an attachment-bearing request?
 7. **#407:** land fail-closed separately first, or as part of M1?
+8. **Heap:** both T2 and the existing `getSourcePdfBase64` exceed the documented 6 MB heap on large files without error (§3.1). Comfortable relying on that, or should caps be set to the documented limit?
+9. **Caps and review rule:** per-attachment and per-request caps (proposed 20 MB / 100 files)? Require the signer to open every drawing before Approve?
 
 ## 9. Out of scope for M1
 
