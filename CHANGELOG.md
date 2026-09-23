@@ -4,20 +4,29 @@
 
 ### Fixed
 
-- **The signing page is sharp on phones and HiDPI screens (#413).** The guided signing
-  viewer drew each PDF page onto a canvas sized in CSS pixels and ignored
-  `devicePixelRatio`, so on any high-density screen — every modern phone, most laptops —
-  the document was rasterised at a half to a third of the screen's resolution and
-  upscaled: soft text, and pinch-zoom only magnified the blur. Page canvases are now
-  backed at the device's pixel ratio (up to 3×) while displaying at the same size,
-  bounded by a per-canvas cap (iOS Safari refuses a canvas over 16.7 MP) and a
-  whole-document pixel budget, so a long document can't exhaust a phone's canvas memory;
-  a page that hits a cap renders no worse than before. Sign-spot placement and the
-  composited stamps are unchanged — both read the CSS-pixel viewport, never the canvas
-  size — verified by signing the same template before and after the change: every
-  placement operator in the signed PDF was identical. Covered by
-  `scripts/qa/signing-page-dpr-check.mjs`, which lifts the sizing logic straight out of
-  the page. Zoom that re-renders at the zoomed resolution is a separate follow-up.
+- **The signing page is sharp on phones and HiDPI screens, and stays sharp when you
+  zoom (#413).** The guided signing viewer drew each PDF page onto a canvas sized in CSS
+  pixels and ignored `devicePixelRatio`, so on any high-density screen — every modern
+  phone, most laptops — the document was rasterised at a half to a third of the screen's
+  resolution and upscaled: soft text, and pinch-zoom only magnified the blur. Two
+  changes:
+    - **Device resolution.** Page canvases are backed at the device's pixel ratio (up to
+      3×) while displaying at the same size, bounded by a per-canvas cap (iOS Safari
+      refuses a canvas over 16.7 MP) and a whole-document pixel budget so a long document
+      can't exhaust a phone's canvas memory. A page that hits a cap renders no worse than
+      before.
+    - **Zoom re-renders.** Once a pinch-zoom (or a desktop browser-zoom change) settles,
+      the pages in view are re-rendered at the zoomed resolution — the current render
+      stays on screen until the sharp one is ready — within a shared zoom pixel budget.
+      Pages that scroll out of view drop back to their base render, so memory stays
+      bounded; a quick pinch in and out re-renders nothing. On an A3 drawing pinched to
+      5× on a phone that is ~5× the detail it had before.
+
+    Sign-spot placement and the composited stamps are unchanged — anchors and stamping read
+    the CSS-pixel viewport, never the canvas — verified by signing the same template before
+    the change, after it, and after a zoom cycle: every placement operator in the signed PDF
+    was identical. Covered by `scripts/qa/signing-page-dpr-check.mjs`, which lifts the
+    sizing and zoom logic straight out of the page.
 
 ## v3.57.0 — Per-brand signature emails, duplex bulk PDF, and a sweep of large-template crashes
 
