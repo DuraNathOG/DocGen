@@ -19,8 +19,12 @@
       the pages in view are re-rendered at the zoomed resolution — the current render
       stays on screen until the sharp one is ready — within a shared zoom pixel budget.
       Pages that scroll out of view drop back to their base render, so memory stays
-      bounded; a quick pinch in and out re-renders nothing. On an A3 drawing pinched to
-      5× on a phone that is ~5× the detail it had before.
+      bounded; a quick pinch in and out re-renders nothing. While zoomed, the viewer also
+      watches the view position directly, so scrolling or flinging to another page
+      sharpens it once the view settles — a zoomed pan on a phone doesn't reliably fire
+      scroll events, and without this the next page stayed soft until the signer
+      re-zoomed. On an A3 drawing pinched to 5× on a phone that is ~5× the detail it had
+      before.
 
     Sign-spot placement and the composited stamps are unchanged — anchors and stamping read
     the CSS-pixel viewport, never the canvas — verified by signing the same template before
