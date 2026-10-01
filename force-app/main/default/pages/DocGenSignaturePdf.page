@@ -605,6 +605,119 @@
                     gap: 0.5rem;
                 }
 
+                /* ===== #412 ATTACHED DOCUMENTS ===== */
+                .doc-nav {
+                    background: #fff;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    padding: 0.5rem 1.5rem;
+                    border-top: 1px solid #e5e5e5;
+                    flex-shrink: 0;
+                }
+                .doc-select {
+                    flex: 1;
+                    min-width: 0;
+                    /* 16px keeps iOS from zooming the page when the list opens. */
+                    font-size: 16px;
+                    padding: 0.4rem 0.5rem;
+                    border: 1px solid #c9c7c5;
+                    border-radius: 4px;
+                    background: #fff;
+                    color: #181818;
+                }
+                .btn-icon {
+                    padding: 0.35rem 0.7rem;
+                    font-size: 1.1rem;
+                    line-height: 1;
+                    min-width: 2.5rem;
+                }
+                .btn-icon:disabled {
+                    color: #c9c7c5;
+                    cursor: not-allowed;
+                }
+                .doc-status {
+                    background: #fff;
+                    padding: 0.4rem 1.5rem 0.6rem;
+                    font-size: 0.8125rem;
+                    flex-shrink: 0;
+                }
+                .doc-status.pending {
+                    color: #8c4b02;
+                }
+                .doc-status.complete {
+                    color: #2e844a;
+                }
+                .doc-status .link {
+                    color: #0176d3;
+                    text-decoration: underline;
+                    cursor: pointer;
+                    background: none;
+                    border: 0;
+                    padding: 0;
+                    font: inherit;
+                }
+                .attachment-pane {
+                    flex: 1;
+                    min-height: 0;
+                    display: flex;
+                    flex-direction: column;
+                }
+                .attachment-toolbar {
+                    background: #3b3d3f;
+                    color: #f3f2f2;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                    padding: 0.4rem 1rem;
+                    font-size: 0.8125rem;
+                    flex-shrink: 0;
+                }
+                .attachment-meta {
+                    flex: 1;
+                    min-width: 0;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+                .attachment-toolbar .btn-icon {
+                    background: #525659;
+                    color: #fff;
+                    border-color: #6b6d70;
+                }
+                .attachment-toolbar .btn-icon:disabled {
+                    color: #8a8c8e;
+                }
+                .zoom-label {
+                    min-width: 3.25rem;
+                    text-align: center;
+                }
+                .attachment-viewer .attachment-message {
+                    color: #fff;
+                    text-align: center;
+                    padding: 2rem;
+                    margin: 0 auto;
+                    max-width: 34rem;
+                }
+                .attachment-viewer .attachment-message.error {
+                    color: #ffd1cc;
+                }
+                .attachment-progress {
+                    width: 16rem;
+                    max-width: 80%;
+                    height: 6px;
+                    margin: 0.75rem auto 0;
+                    background: #6b6d70;
+                    border-radius: 3px;
+                    overflow: hidden;
+                }
+                .attachment-progress span {
+                    display: block;
+                    height: 100%;
+                    width: 0;
+                    background: #1b96ff;
+                }
+
                 @media (max-width: 640px) {
                     .page-wrapper {
                         padding: 0;
@@ -620,6 +733,19 @@
                     }
                     .pdf-header {
                         padding: 0.75rem 1rem;
+                    }
+                    .doc-nav,
+                    .doc-status {
+                        padding-left: 1rem;
+                        padding-right: 1rem;
+                    }
+                    /* Height-bound on a phone so a zoomed drawing pans inside its box. */
+                    .attachment-pane {
+                        flex: none;
+                    }
+                    .pdf-viewer.attachment-viewer {
+                        height: 70vh;
+                        min-height: 0;
                     }
                     .pdf-action-bar {
                         padding: 0.75rem 1rem;
@@ -699,9 +825,42 @@
                             <span id="pdf-role-badge" class="role-badge" style="display: none"></span>
                         </div>
 
+                        <!-- #412 attached documents: switch between the signing document and each one. -->
+                        <div id="doc-nav" class="doc-nav" style="display: none">
+                            <button id="doc-prev" class="btn btn-icon" type="button" aria-label="Previous document">
+                                &#8249;
+                            </button>
+                            <select id="doc-select" class="doc-select" aria-label="Document to view"></select>
+                            <button id="doc-next" class="btn btn-icon" type="button" aria-label="Next document">
+                                &#8250;
+                            </button>
+                        </div>
+                        <div
+                            id="doc-status"
+                            class="doc-status"
+                            style="display: none"
+                            role="status"
+                            aria-live="polite"
+                        ></div>
+
                         <!-- DocGenPdfViewer.render() renders into this container. -->
                         <div class="pdf-viewer" id="pdf-viewer-container">
                             <div class="spinner-container"><div class="spinner"></div></div>
+                        </div>
+
+                        <!-- #412 DocGenPdfViewer.renderDocument() shows one attached document here. -->
+                        <div id="attachment-pane" class="attachment-pane" style="display: none">
+                            <div class="attachment-toolbar">
+                                <span id="attachment-meta" class="attachment-meta"></span>
+                                <button id="att-zoom-out" class="btn btn-icon" type="button" aria-label="Zoom out">
+                                    &#8722;
+                                </button>
+                                <span id="att-zoom-label" class="zoom-label">Fit</span>
+                                <button id="att-zoom-in" class="btn btn-icon" type="button" aria-label="Zoom in">
+                                    +
+                                </button>
+                            </div>
+                            <div class="pdf-viewer attachment-viewer" id="attachment-viewer-container"></div>
                         </div>
 
                         <div class="pdf-action-bar">
@@ -922,16 +1081,28 @@
                     // on a phone doesn't reliably deliver the events above, and without this a
                     // page scrolled into view stayed soft until the signer re-zoomed.
                     var ZOOM_WATCH_MS = 400;
+                    // #412 — an attached document (e.g. an engineering drawing) is shown one at a
+                    // time, alongside the live signing document, from its own pixel budget.
+                    var ATTACHMENT_PIXEL_BUDGET = 32000000;
+                    var ATTACHMENT_ZOOM_LEVELS = [1, 1.5, 2, 3, 4];
 
                     var pdfjsLib = null; // resolved ESM module (cached after first import)
                     // { pageNum, viewport, textContent, wrapEl, pdfPage, canvas, ratio, task, pendingRatio }
+                    // The signing document only: anchors, chips and hitToPdfRect read these.
                     var pages = [];
                     var ready = false;
                     var docPageCount = 1;
+                    // #412 — the attached document on show. Same entry shape plus docPages/budget;
+                    // never consulted for anchors or stamping, only for the zoom refresh.
+                    var extra = [];
+                    var extraPdf = null;
+                    var extraGen = 0; // bumps on every load/release so a superseded render stops
+                    var extraZoom = 1;
+                    var extraRenderTask = null; // first render of an attached page, in flight
                     var zoomTimer = null;
                     var zoomListening = false;
                     var zoomWatch = null; // interval id while pinch-zoomed
-                    var viewerEl = null;
+                    var scrollEls = []; // viewer boxes whose scroll position brings pages into view
                     var lastViewKey = '';
                     var lastMovedAt = 0;
                     var refreshedViewKey = ''; // view the last refresh evaluated
@@ -988,10 +1159,10 @@
 
                     // Backing-store pixels per CSS pixel for one page canvas (#413). Never
                     // below 1, so a page that hits a cap is no worse than before.
-                    function backingRatio(viewport, numPages) {
+                    function backingRatio(viewport, numPages, budget) {
                         var ratio = Math.min(MAX_DEVICE_RATIO, window.devicePixelRatio || 1);
                         var cssPixels = viewport.width * viewport.height;
-                        var perPage = Math.min(MAX_CANVAS_PIXELS, DOC_PIXEL_BUDGET / Math.max(1, numPages));
+                        var perPage = Math.min(MAX_CANVAS_PIXELS, (budget || DOC_PIXEL_BUDGET) / Math.max(1, numPages));
                         if (cssPixels * ratio * ratio > perPage) {
                             ratio = Math.sqrt(perPage / cssPixels);
                         }
@@ -1069,17 +1240,19 @@
 
                     function refreshResolution() {
                         zoomTimer = null;
-                        if (!ready || !pages.length) {
+                        var all = (ready ? pages : []).concat(extra);
+                        if (!all.length) {
                             return;
                         }
                         refreshedViewKey = viewKey();
                         var zoom = pinchZoom();
                         var dpr = window.devicePixelRatio || 1;
-                        var visible = pages.filter(inView);
+                        // A hidden viewer box measures 0×0, so its pages count as out of view.
+                        var visible = all.filter(inView);
                         var allowance = Math.min(MAX_CANVAS_PIXELS, ZOOM_PIXEL_BUDGET / Math.max(1, visible.length));
-                        for (var i = 0; i < pages.length; i++) {
-                            var entry = pages[i];
-                            var base = backingRatio(entry.viewport, docPageCount);
+                        for (var i = 0; i < all.length; i++) {
+                            var entry = all[i];
+                            var base = backingRatio(entry.viewport, entry.docPages || docPageCount, entry.budget);
                             var target = entry.ratio;
                             if (visible.indexOf(entry) >= 0) {
                                 target = zoomedRatio(entry.viewport, base, dpr, zoom, allowance);
@@ -1109,10 +1282,14 @@
                     // Where the signer is looking: scroll positions plus the pinch viewport.
                     function viewKey() {
                         var vv = window.visualViewport;
+                        var boxes = [];
+                        for (var i = 0; i < scrollEls.length; i++) {
+                            boxes.push(scrollEls[i].scrollLeft + ':' + scrollEls[i].scrollTop);
+                        }
                         return [
                             window.scrollX,
                             window.scrollY,
-                            viewerEl ? viewerEl.scrollTop : 0,
+                            boxes.join('/'),
                             vv ? vv.offsetLeft : 0,
                             vv ? vv.offsetTop : 0,
                             pinchZoom()
@@ -1151,7 +1328,12 @@
                     }
 
                     function listenForZoom(containerEl) {
-                        viewerEl = containerEl;
+                        // On a phone the viewer isn't height-bound, so the document scrolls; on a
+                        // desktop the viewer box does. Either brings different pages into view.
+                        if (scrollEls.indexOf(containerEl) < 0) {
+                            scrollEls.push(containerEl);
+                            containerEl.addEventListener('scroll', scheduleRefresh, { passive: true });
+                        }
                         if (zoomListening) {
                             return;
                         }
@@ -1161,10 +1343,132 @@
                             window.visualViewport.addEventListener('scroll', scheduleRefresh);
                         }
                         window.addEventListener('resize', scheduleRefresh); // browser zoom changes devicePixelRatio
-                        // On a phone the viewer isn't height-bound, so the document scrolls; on a
-                        // desktop the viewer box does. Either brings different pages into view.
                         window.addEventListener('scroll', scheduleRefresh, { passive: true });
-                        containerEl.addEventListener('scroll', scheduleRefresh, { passive: true });
+                    }
+
+                    // #412 — drop the attached document's canvases (iOS counts their backing
+                    // stores against a hard memory ceiling) and stop any render in flight.
+                    function dropExtraPages() {
+                        extraGen++;
+                        if (extraRenderTask) {
+                            extraRenderTask.cancel();
+                            extraRenderTask = null;
+                        }
+                        for (var i = 0; i < extra.length; i++) {
+                            if (extra[i].task) {
+                                extra[i].task.cancel();
+                            }
+                            extra[i].canvas.width = 0;
+                            extra[i].canvas.height = 0;
+                        }
+                        extra = [];
+                    }
+
+                    function releaseExtra() {
+                        dropExtraPages();
+                        if (extraPdf) {
+                            try {
+                                extraPdf.destroy();
+                            } catch (e) {
+                                /* already gone */
+                            }
+                            extraPdf = null;
+                        }
+                    }
+
+                    // One page of an attached document: like renderOnePage, at the signer's
+                    // chosen zoom, without a text layer (nothing is anchored to it). The page
+                    // joins the zoom refresh only once drawn, so a pinch mid-load can't cancel
+                    // its first render. Resolves false when a newer load superseded this one.
+                    function renderExtraPage(pdf, pageNum, containerEl, gen, zoom) {
+                        return pdf.getPage(pageNum).then(function (page) {
+                            if (gen !== extraGen) {
+                                return false;
+                            }
+                            var viewport = page.getViewport({ scale: fitScale(page, containerEl) * zoom });
+                            var ratio = backingRatio(viewport, pdf.numPages, ATTACHMENT_PIXEL_BUDGET);
+                            var renderViewport = page.getViewport({ scale: viewport.scale * ratio });
+                            var wrap = document.createElement('div');
+                            wrap.className = 'dg-page-wrap';
+                            wrap.style.width = viewport.width + 'px';
+                            wrap.style.height = viewport.height + 'px';
+                            var canvas = document.createElement('canvas');
+                            canvas.width = Math.floor(renderViewport.width);
+                            canvas.height = Math.floor(renderViewport.height);
+                            canvas.style.width = viewport.width + 'px';
+                            canvas.style.height = viewport.height + 'px';
+                            wrap.appendChild(canvas);
+                            containerEl.appendChild(wrap);
+                            var task = page.render({
+                                canvasContext: canvas.getContext('2d'),
+                                viewport: renderViewport
+                            });
+                            extraRenderTask = task;
+                            return task.promise.then(
+                                function () {
+                                    if (extraRenderTask === task) {
+                                        extraRenderTask = null;
+                                    }
+                                    if (gen !== extraGen) {
+                                        canvas.width = 0;
+                                        canvas.height = 0;
+                                        return false;
+                                    }
+                                    extra.push({
+                                        pageNum: pageNum,
+                                        viewport: viewport,
+                                        textContent: null,
+                                        wrapEl: wrap,
+                                        pdfPage: page,
+                                        canvas: canvas,
+                                        ratio: ratio,
+                                        task: null,
+                                        pendingRatio: ratio,
+                                        docPages: pdf.numPages,
+                                        budget: ATTACHMENT_PIXEL_BUDGET
+                                    });
+                                    return true;
+                                },
+                                function () {
+                                    if (extraRenderTask === task) {
+                                        extraRenderTask = null;
+                                    }
+                                    canvas.width = 0;
+                                    canvas.height = 0;
+                                    return false;
+                                }
+                            );
+                        });
+                    }
+
+                    function renderExtraPages(containerEl, gen, onFirstPage) {
+                        var pdf = extraPdf;
+                        var chain = Promise.resolve(true);
+                        for (var p = 1; p <= pdf.numPages; p++) {
+                            (function (pageNum) {
+                                chain = chain.then(function (keepGoing) {
+                                    if (!keepGoing || gen !== extraGen) {
+                                        return false;
+                                    }
+                                    return renderExtraPage(pdf, pageNum, containerEl, gen, extraZoom).then(
+                                        function (drawn) {
+                                            if (drawn && pageNum === 1 && onFirstPage) {
+                                                onFirstPage(pdf.numPages);
+                                            }
+                                            return drawn;
+                                        }
+                                    );
+                                });
+                            })(p);
+                        }
+                        return chain.then(function (completed) {
+                            var done = completed === true && gen === extraGen;
+                            if (done) {
+                                listenForZoom(containerEl);
+                                scheduleRefresh();
+                            }
+                            return { pageCount: pdf.numPages, completed: done };
+                        });
                     }
 
                     function renderOnePage(pdf, pageNum, containerEl) {
@@ -1347,6 +1651,73 @@
                         isReady: function () {
                             return ready;
                         },
+
+                        // #412 — show an attached document (raw PDF bytes) in its own viewer
+                        // box, replacing whichever attached document was on show. Kept apart
+                        // from the signing document: never searched for anchors, never stamped.
+                        // onFirstPage(pageCount) fires once page 1 is on screen. Resolves
+                        // { pageCount, completed } — completed=false when superseded.
+                        renderDocument: function (bytes, containerEl, onFirstPage) {
+                            releaseExtra();
+                            extraZoom = 1;
+                            var gen = extraGen;
+                            // PDF.js transfers the buffer to its worker; hand it a copy so the
+                            // caller's bytes stay usable (re-showing, hashing).
+                            var data = bytes.slice ? bytes.slice(0) : bytes;
+                            return ensurePdfjs(containerEl)
+                                .then(function (lib) {
+                                    return lib.getDocument({ data: data, isEvalSupported: false }).promise;
+                                })
+                                .then(function (pdf) {
+                                    if (gen !== extraGen) {
+                                        pdf.destroy();
+                                        return { pageCount: 0, completed: false };
+                                    }
+                                    extraPdf = pdf;
+                                    clearContainer(containerEl);
+                                    return renderExtraPages(containerEl, gen, onFirstPage);
+                                });
+                        },
+
+                        // Re-render the attached document on show at one of zoomLevels
+                        // (1 = fit width), keeping the same spot in view. Document-only zoom:
+                        // the viewer box scrolls, the page chrome stays put.
+                        setDocumentZoom: function (containerEl, level) {
+                            if (!extraPdf || level === extraZoom) {
+                                return Promise.resolve(null);
+                            }
+                            var w = Math.max(1, containerEl.scrollWidth);
+                            var h = Math.max(1, containerEl.scrollHeight);
+                            var cx = (containerEl.scrollLeft + containerEl.clientWidth / 2) / w;
+                            var cy = (containerEl.scrollTop + containerEl.clientHeight / 2) / h;
+                            dropExtraPages();
+                            var gen = extraGen;
+                            extraZoom = level;
+                            clearContainer(containerEl);
+                            function recentre() {
+                                containerEl.scrollLeft = cx * containerEl.scrollWidth - containerEl.clientWidth / 2;
+                                containerEl.scrollTop = cy * containerEl.scrollHeight - containerEl.clientHeight / 2;
+                            }
+                            return renderExtraPages(containerEl, gen, recentre).then(function (r) {
+                                if (r.completed && r.pageCount > 1) {
+                                    recentre(); // later pages changed the scroll height
+                                }
+                                return r;
+                            });
+                        },
+
+                        releaseDocument: function (containerEl) {
+                            releaseExtra();
+                            if (containerEl) {
+                                clearContainer(containerEl);
+                            }
+                        },
+
+                        documentZoom: function () {
+                            return extraZoom;
+                        },
+
+                        zoomLevels: ATTACHMENT_ZOOM_LEVELS,
 
                         // Find EVERY occurrence of each needle across all pages, tolerating
                         // a match split across text runs. Occurrences are returned in
@@ -1731,6 +2102,9 @@
                         // Wire the modal.
                         wireSignModal();
 
+                        // #412 — attached documents (if any) load alongside the signing document.
+                        initAttachments(data);
+
                         // Load and render the real PDF through the viewer abstraction.
                         loadPdf();
                     }
@@ -1751,6 +2125,7 @@
                                     // placements — the single-modal flow stays in effect).
                                     DocGenPdfViewer.render(result.base64, containerEl)
                                         .then(function () {
+                                            formRendered.resolve();
                                             initGuidedOverlay();
                                         })
                                         .catch(function () {
@@ -1762,6 +2137,488 @@
                             },
                             { escape: false, buffer: false, timeout: 120000 }
                         );
+                    }
+
+                    // ===== #412 ATTACHED DOCUMENTS =====
+                    // Existing PDFs from the record (e.g. engineering drawings), shown alongside the
+                    // signing document one at a time and fetched by index from the guest REST
+                    // endpoint as raw bytes — drawings run past what remoting can carry. The signer
+                    // must open every one before signing; saveCompositedSignedPdf enforces the same
+                    // rule server-side, so this UI gate is a convenience, not the control.
+                    var attachments = null; // [{index,title,version,size,position,sha256,viewedAt}]
+                    var attachmentEndpoint = null;
+                    var docOrder = []; // display order: 'form' and attachment entries
+                    var currentDoc = 'form';
+                    var attachmentLoadGen = 0;
+                    var attachmentCache = []; // [{index, bytes}], most recent last
+                    var ATTACHMENT_CACHE_BYTES = 48 * 1024 * 1024;
+                    var formRendered = (function () {
+                        var done;
+                        var p = new Promise(function (resolve) {
+                            done = resolve;
+                        });
+                        return { promise: p, resolve: done };
+                    })();
+
+                    function hasAttachments() {
+                        return !!(attachments && attachments.length);
+                    }
+
+                    function unopenedAttachments() {
+                        var left = [];
+                        for (var i = 0; attachments && i < attachments.length; i++) {
+                            if (!attachments[i].viewedAt) left.push(attachments[i]);
+                        }
+                        return left;
+                    }
+
+                    function formatBytes(n) {
+                        if (!n) return '';
+                        if (n < 1024 * 1024) return Math.max(1, Math.round(n / 1024)) + ' KB';
+                        return (n / (1024 * 1024)).toFixed(1) + ' MB';
+                    }
+
+                    function initAttachments(data) {
+                        if (!data || !data.attachmentCount) return;
+                        var manifest = new Promise(function (resolve, reject) {
+                            Visualforce.remoting.Manager.invokeAction(
+                                '{!$RemoteAction.DocGenSignatureController.getAttachmentManifest}',
+                                token,
+                                function (result, event) {
+                                    if (event.status && result && result.success) {
+                                        resolve(result);
+                                    } else {
+                                        reject(
+                                            new Error(
+                                                (result && result.message) ||
+                                                    'The attached documents could not be loaded.'
+                                            )
+                                        );
+                                    }
+                                },
+                                { escape: false }
+                            );
+                        });
+                        manifest
+                            .then(function (result) {
+                                attachments = result.attachments || [];
+                                attachmentEndpoint = result.endpoint;
+                                if (!attachments.length) return;
+                                var before = [];
+                                var after = [];
+                                attachments.forEach(function (a) {
+                                    (a.position === 'After' ? after : before).push(a);
+                                });
+                                docOrder = before.concat(['form'], after);
+                                buildDocNav();
+                                refreshAttachmentStatus();
+                                refreshGuidedStatus();
+                                // The signing document lays itself out against a visible viewer,
+                                // so only switch away once it has rendered.
+                                if (docOrder[0] !== 'form') {
+                                    formRendered.promise.then(function () {
+                                        if (currentDoc === 'form') showDocument(docOrder[0]);
+                                    });
+                                }
+                            })
+                            .catch(function (err) {
+                                showError(
+                                    (err && err.message ? err.message : 'The attached documents could not be loaded.') +
+                                        ' Please refresh the page, or contact the sender.'
+                                );
+                            });
+                    }
+
+                    function docLabel(entry) {
+                        if (entry === 'form') {
+                            return (
+                                (signerData && signerData.documentTitle ? signerData.documentTitle : 'Document') +
+                                ' (sign here)'
+                            );
+                        }
+                        var pos = attachments.indexOf(entry) + 1;
+                        return (
+                            (entry.viewedAt ? '\u2713 ' : '\u25CB ') +
+                            'Attached ' +
+                            pos +
+                            ' of ' +
+                            attachments.length +
+                            ': ' +
+                            (entry.title || 'Document') +
+                            (entry.version ? ' (v' + entry.version + ')' : '')
+                        );
+                    }
+
+                    function buildDocNav() {
+                        var select = document.getElementById('doc-select');
+                        while (select.firstChild) select.removeChild(select.firstChild);
+                        docOrder.forEach(function (entry, i) {
+                            var opt = document.createElement('option');
+                            opt.value = String(i);
+                            opt.textContent = docLabel(entry);
+                            select.appendChild(opt);
+                        });
+                        select.addEventListener('change', function () {
+                            showDocument(docOrder[Number(select.value)]);
+                        });
+                        document.getElementById('doc-prev').addEventListener('click', function () {
+                            stepDocument(-1);
+                        });
+                        document.getElementById('doc-next').addEventListener('click', function () {
+                            stepDocument(1);
+                        });
+                        document.getElementById('att-zoom-in').addEventListener('click', function () {
+                            stepZoom(1);
+                        });
+                        document.getElementById('att-zoom-out').addEventListener('click', function () {
+                            stepZoom(-1);
+                        });
+                        document.getElementById('doc-nav').style.display = '';
+                        document.getElementById('doc-status').style.display = '';
+                        syncDocNav();
+                    }
+
+                    function syncDocNav() {
+                        var select = document.getElementById('doc-select');
+                        var at = docOrder.indexOf(currentDoc);
+                        for (var i = 0; i < select.options.length; i++) {
+                            select.options[i].textContent = docLabel(docOrder[i]);
+                        }
+                        select.value = String(at);
+                        document.getElementById('doc-prev').disabled = at <= 0;
+                        document.getElementById('doc-next').disabled = at >= docOrder.length - 1;
+                    }
+
+                    function stepDocument(delta) {
+                        var at = docOrder.indexOf(currentDoc) + delta;
+                        if (at >= 0 && at < docOrder.length) showDocument(docOrder[at]);
+                    }
+
+                    function refreshAttachmentStatus() {
+                        if (!hasAttachments()) return;
+                        var el = document.getElementById('doc-status');
+                        while (el.firstChild) el.removeChild(el.firstChild);
+                        var left = unopenedAttachments();
+                        var total = attachments.length;
+                        var plural = total === 1 ? '' : 's';
+                        if (!left.length) {
+                            el.className = 'doc-status complete';
+                            el.appendChild(
+                                document.createTextNode(
+                                    '\u2713 ' +
+                                        (total === 1
+                                            ? 'The attached document has'
+                                            : 'All ' + total + ' attached documents have') +
+                                        ' been opened.'
+                                )
+                            );
+                            return;
+                        }
+                        el.className = 'doc-status pending';
+                        el.appendChild(
+                            document.createTextNode(
+                                total -
+                                    left.length +
+                                    ' of ' +
+                                    total +
+                                    ' attached document' +
+                                    plural +
+                                    ' opened. Open each one before you sign. '
+                            )
+                        );
+                        var next = document.createElement('button');
+                        next.type = 'button';
+                        next.className = 'link';
+                        next.textContent = 'Open the next one';
+                        next.addEventListener('click', function () {
+                            var remaining = unopenedAttachments();
+                            if (remaining.length) showDocument(remaining[0]);
+                        });
+                        el.appendChild(next);
+                    }
+
+                    function showDocument(entry) {
+                        if (docOrder.indexOf(entry) < 0) return;
+                        currentDoc = entry;
+                        var formEl = document.getElementById('pdf-viewer-container');
+                        var pane = document.getElementById('attachment-pane');
+                        var attEl = document.getElementById('attachment-viewer-container');
+                        syncDocNav();
+                        if (entry === 'form') {
+                            attachmentLoadGen++;
+                            DocGenPdfViewer.releaseDocument(attEl);
+                            pane.style.display = 'none';
+                            formEl.style.display = '';
+                            return;
+                        }
+                        formEl.style.display = 'none';
+                        pane.style.display = '';
+                        loadAttachment(entry);
+                    }
+
+                    function setAttachmentMeta(a, pageCount) {
+                        var bits = [a.title || 'Document'];
+                        if (a.version) bits.push('v' + a.version);
+                        if (a.size) bits.push(formatBytes(a.size));
+                        if (pageCount) bits.push(pageCount + (pageCount === 1 ? ' page' : ' pages'));
+                        document.getElementById('attachment-meta').textContent = bits.join(' \u00B7 ');
+                    }
+
+                    function syncZoomControls(enabled) {
+                        var levels = DocGenPdfViewer.zoomLevels;
+                        var z = DocGenPdfViewer.documentZoom();
+                        var at = levels.indexOf(z);
+                        document.getElementById('att-zoom-label').textContent =
+                            z === 1 ? 'Fit' : Math.round(z * 100) + '%';
+                        document.getElementById('att-zoom-out').disabled = !enabled || at <= 0;
+                        document.getElementById('att-zoom-in').disabled = !enabled || at >= levels.length - 1;
+                    }
+
+                    function stepZoom(delta) {
+                        var levels = DocGenPdfViewer.zoomLevels;
+                        var at = levels.indexOf(DocGenPdfViewer.documentZoom()) + delta;
+                        if (at < 0 || at >= levels.length) return;
+                        var gen = attachmentLoadGen;
+                        syncZoomControls(false);
+                        DocGenPdfViewer.setDocumentZoom(
+                            document.getElementById('attachment-viewer-container'),
+                            levels[at]
+                        ).then(function () {
+                            if (gen === attachmentLoadGen) syncZoomControls(true);
+                        });
+                    }
+
+                    function showAttachmentMessage(text, isError, withProgress, retry) {
+                        var el = document.getElementById('attachment-viewer-container');
+                        DocGenPdfViewer.releaseDocument(el);
+                        var box = document.createElement('div');
+                        box.className = 'attachment-message' + (isError ? ' error' : '');
+                        var p = document.createElement('p');
+                        p.textContent = text;
+                        box.appendChild(p);
+                        var bar = null;
+                        if (withProgress) {
+                            var track = document.createElement('div');
+                            track.className = 'attachment-progress';
+                            bar = document.createElement('span');
+                            track.appendChild(bar);
+                            box.appendChild(track);
+                        }
+                        if (retry) {
+                            var btn = document.createElement('button');
+                            btn.type = 'button';
+                            btn.className = 'btn';
+                            btn.style.marginTop = '1rem';
+                            btn.textContent = 'Try again';
+                            btn.addEventListener('click', retry);
+                            box.appendChild(btn);
+                        }
+                        el.appendChild(box);
+                        return bar;
+                    }
+
+                    function loadAttachment(a) {
+                        var gen = ++attachmentLoadGen;
+                        var el = document.getElementById('attachment-viewer-container');
+                        setAttachmentMeta(a);
+                        syncZoomControls(false);
+                        var bar = showAttachmentMessage(
+                            'Loading ' +
+                                (a.title || 'document') +
+                                (a.size ? ' (' + formatBytes(a.size) + ')' : '') +
+                                '\u2026',
+                            false,
+                            true
+                        );
+                        fetchAttachmentBytes(a, function (loaded, total) {
+                            if (bar && total) bar.style.width = Math.min(100, Math.round((loaded / total) * 100)) + '%';
+                        })
+                            .then(function (bytes) {
+                                if (gen !== attachmentLoadGen) return null;
+                                return DocGenPdfViewer.renderDocument(bytes, el, function (pageCount) {
+                                    if (gen !== attachmentLoadGen) return;
+                                    setAttachmentMeta(a, pageCount);
+                                    recordAttachmentOpened(a, 0);
+                                });
+                            })
+                            .then(function (r) {
+                                if (r && r.completed && gen === attachmentLoadGen) syncZoomControls(true);
+                            })
+                            .catch(function (err) {
+                                if (gen !== attachmentLoadGen) return;
+                                console.error('Portwood attached document ' + a.index + ' failed', err);
+                                showAttachmentMessage(
+                                    err && err.userMessage
+                                        ? err.userMessage
+                                        : 'This document could not be displayed. Check your connection and try again.',
+                                    true,
+                                    false,
+                                    function () {
+                                        loadAttachment(a);
+                                    }
+                                );
+                            });
+                    }
+
+                    function userError(message) {
+                        var e = new Error(message);
+                        e.userMessage = message;
+                        return e;
+                    }
+
+                    function cachedAttachment(index) {
+                        for (var i = 0; i < attachmentCache.length; i++) {
+                            if (attachmentCache[i].index === index) return attachmentCache[i].bytes;
+                        }
+                        return null;
+                    }
+
+                    function cacheAttachment(index, bytes) {
+                        attachmentCache.push({ index: index, bytes: bytes });
+                        var total = 0;
+                        for (var i = 0; i < attachmentCache.length; i++) total += attachmentCache[i].bytes.length;
+                        while (attachmentCache.length > 1 && total > ATTACHMENT_CACHE_BYTES) {
+                            total -= attachmentCache.shift().bytes.length;
+                        }
+                    }
+
+                    // Raw PDF bytes for one attachment. The token travels in a header (never the
+                    // URL); the response is checked against the server's SHA-256 so what is shown
+                    // is exactly what the approval register records.
+                    function fetchAttachmentBytes(a, onProgress) {
+                        var hit = cachedAttachment(a.index);
+                        if (hit) return Promise.resolve(hit);
+                        if (!window.fetch || !attachmentEndpoint) {
+                            return Promise.reject(userError('This browser cannot open the attached documents.'));
+                        }
+                        return fetch(attachmentEndpoint + '?index=' + encodeURIComponent(a.index), {
+                            method: 'GET',
+                            headers: { 'X-Portwood-Token': token },
+                            cache: 'no-store',
+                            credentials: 'same-origin'
+                        })
+                            .then(function (res) {
+                                if (!res.ok) {
+                                    return res
+                                        .json()
+                                        .catch(function () {
+                                            return {};
+                                        })
+                                        .then(function (body) {
+                                            throw userError(
+                                                (body && body.error) ||
+                                                    'This document could not be loaded (error ' + res.status + ').'
+                                            );
+                                        });
+                                }
+                                var serverSha = res.headers.get('X-Portwood-Sha256');
+                                return readAll(res, a.size, onProgress).then(function (bytes) {
+                                    return verifyAttachment(bytes, serverSha, a);
+                                });
+                            })
+                            .then(function (bytes) {
+                                cacheAttachment(a.index, bytes);
+                                return bytes;
+                            });
+                    }
+
+                    function readAll(res, expected, onProgress) {
+                        if (!res.body || !res.body.getReader) {
+                            return res.arrayBuffer().then(function (buf) {
+                                return new Uint8Array(buf);
+                            });
+                        }
+                        var reader = res.body.getReader();
+                        var chunks = [];
+                        var loaded = 0;
+                        function pump() {
+                            return reader.read().then(function (step) {
+                                if (step.done) {
+                                    var out = new Uint8Array(loaded);
+                                    var at = 0;
+                                    for (var i = 0; i < chunks.length; i++) {
+                                        out.set(chunks[i], at);
+                                        at += chunks[i].length;
+                                    }
+                                    return out;
+                                }
+                                chunks.push(step.value);
+                                loaded += step.value.length;
+                                if (onProgress) onProgress(loaded, expected);
+                                return pump();
+                            });
+                        }
+                        return pump();
+                    }
+
+                    function verifyAttachment(bytes, serverSha, a) {
+                        if (!window.crypto || !window.crypto.subtle) {
+                            return Promise.resolve(bytes); // the server-side hash still stands
+                        }
+                        return window.crypto.subtle.digest('SHA-256', bytes).then(function (digest) {
+                            var hex = Array.prototype.map
+                                .call(new Uint8Array(digest), function (b) {
+                                    return ('0' + b.toString(16)).slice(-2);
+                                })
+                                .join('');
+                            var expect = (serverSha || a.sha256 || '').toLowerCase();
+                            if (expect && expect !== hex) {
+                                throw userError('This document did not arrive intact. Please try again.');
+                            }
+                            a.sha256 = hex;
+                            return bytes;
+                        });
+                    }
+
+                    // Tell the server this attachment was opened (its first page is on screen).
+                    // Retries a few times; until it lands the attachment still counts as unopened.
+                    function recordAttachmentOpened(a, attempt) {
+                        if (a.viewedAt || (a.marking && attempt === 0)) return;
+                        a.marking = true;
+                        Visualforce.remoting.Manager.invokeAction(
+                            '{!$RemoteAction.DocGenSignatureController.markAttachmentViewed}',
+                            token,
+                            a.index,
+                            function (result, event) {
+                                if (event.status && result && result.success) {
+                                    a.marking = false;
+                                    a.viewedAt = result.viewedAt || new Date().toISOString();
+                                    syncDocNav();
+                                    refreshAttachmentStatus();
+                                    refreshGuidedStatus();
+                                    return;
+                                }
+                                if (attempt < 3) {
+                                    setTimeout(
+                                        function () {
+                                            recordAttachmentOpened(a, attempt + 1);
+                                        },
+                                        1500 * (attempt + 1)
+                                    );
+                                    return;
+                                }
+                                a.marking = false;
+                                console.error(
+                                    'Portwood: could not record opening attached document ' + a.index,
+                                    result
+                                );
+                            },
+                            { escape: false }
+                        );
+                    }
+
+                    // Approve gate (UI side): send the signer to the first unopened attachment.
+                    function requireAttachmentsOpened() {
+                        if (signerData && signerData.attachmentCount && !attachments) {
+                            return false; // manifest still loading — nothing to approve against yet
+                        }
+                        var left = unopenedAttachments();
+                        if (!left.length) return true;
+                        closeSignModal();
+                        showDocument(left[0]);
+                        var status = document.getElementById('doc-status');
+                        if (status && status.scrollIntoView) status.scrollIntoView({ block: 'nearest' });
+                        return false;
                     }
 
                     // ===== GUIDED SIGN-SPOT OVERLAY =====
@@ -1949,7 +2806,12 @@
                         for (var i = 0; i < guided.spots.length; i++) {
                             guided.spots[i].chip.classList.remove('current');
                         }
-                        if (pending < 0) {
+                        var unopened = unopenedAttachments().length;
+                        if (pending < 0 && unopened) {
+                            // #412 — every field is done, but not every attached document is open.
+                            btn.textContent =
+                                'Open attached document' + (unopened === 1 ? '' : 's') + ' (' + unopened + ' left)';
+                        } else if (pending < 0) {
                             btn.textContent = 'Finish & Submit';
                         } else {
                             guided.spots[pending].chip.classList.add('current');
@@ -1967,6 +2829,8 @@
                     //     before acting — deliberate path. They click the chip or "Next Field" next.
                     function advanceGuided(openNext) {
                         if (!guided) return;
+                        // #412 — the walk happens on the signing document.
+                        if (currentDoc !== 'form' && firstPendingIndex() >= 0) showDocument('form');
                         // Form fields first — collect them before the signer signs anything.
                         if (hasPendingFormFields()) {
                             openFormFieldsStep(function () {
@@ -2237,6 +3101,125 @@
                         }
                         flush();
                         return y;
+                    }
+
+                    // pdf-lib's standard fonts only encode WinAnsi; anything else (CJK, symbols)
+                    // would throw mid-composite, so swap it for '?' on the register page.
+                    function winAnsi(text) {
+                        var extras =
+                            '\u20AC\u201A\u0192\u201E\u2026\u2020\u2021\u02C6\u2030\u0160\u2039\u0152\u017D' +
+                            '\u2018\u2019\u201C\u201D\u2022\u2013\u2014\u02DC\u2122\u0161\u203A\u0153\u017E\u0178';
+                        return String(text == null ? '' : text).replace(/[^\x20-\x7E\xA0-\xFF]/g, function (c) {
+                            return extras.indexOf(c) >= 0 ? c : '?';
+                        });
+                    }
+
+                    // #412 — "Attached Documents" register: one entry per attachment with its
+                    // version, size, SHA-256 and who opened it when. The documents themselves stay
+                    // on the record, unchanged; the hash ties this approval to exact bytes.
+                    function addAttachmentRegister(doc, helv, helvBold, cert) {
+                        var rgb = PDFLib.rgb;
+                        var gray = rgb(0.44, 0.43, 0.42);
+                        var brand = rgb(0.005, 0.27, 0.52);
+                        var list = cert.attachments;
+                        var page;
+                        var y;
+                        function newPage(continued) {
+                            page = doc.addPage([612, 792]);
+                            y = 740;
+                            page.drawText('Attached Documents' + (continued ? ' (continued)' : ''), {
+                                x: CERT_LEFT,
+                                y: y,
+                                size: 18,
+                                font: helvBold,
+                                color: brand
+                            });
+                            y -= 28;
+                        }
+                        newPage(false);
+                        page.drawText(winAnsi('Document: ' + (cert.documentTitle || 'Document')), {
+                            x: CERT_LEFT,
+                            y: y,
+                            size: 10,
+                            font: helv
+                        });
+                        y -= 14;
+                        page.drawText('Request ID: ' + (cert.requestId || ''), {
+                            x: CERT_LEFT,
+                            y: y,
+                            size: 9,
+                            font: helv,
+                            color: gray
+                        });
+                        y -= 20;
+                        y = drawWrappedText(
+                            page,
+                            'These ' +
+                                list.length +
+                                ' document' +
+                                (list.length === 1 ? ' was' : 's were') +
+                                ' attached to this request and opened by the signers below before signing. ' +
+                                'Each is identified by its file version and SHA-256 fingerprint; the documents ' +
+                                'themselves are kept, unchanged, on the originating record.',
+                            { x: CERT_LEFT, y: y, size: 9, font: helv, color: gray, lineHeight: 12 }
+                        );
+                        y -= 14;
+                        for (var i = 0; i < list.length; i++) {
+                            var a = list[i];
+                            var opened = a.openedBy || [];
+                            var need = 52 + Math.max(1, opened.length) * 12;
+                            if (y - need < 60) newPage(true);
+                            y = drawWrappedText(page, winAnsi(i + 1 + '. ' + (a.title || 'Document')), {
+                                x: CERT_LEFT,
+                                y: y,
+                                size: 10,
+                                font: helvBold,
+                                lineHeight: 13
+                            });
+                            var facts = [];
+                            if (a.version) facts.push('Version ' + a.version);
+                            if (a.size) facts.push(formatBytes(a.size));
+                            facts.push(a.position === 'After' ? 'shown after the form' : 'shown before the form');
+                            page.drawText(winAnsi(facts.join('  |  ')), {
+                                x: CERT_LEFT + 6,
+                                y: y,
+                                size: 8.5,
+                                font: helv,
+                                color: gray
+                            });
+                            y -= 12;
+                            page.drawText('SHA-256: ' + (a.sha256 || 'not recorded'), {
+                                x: CERT_LEFT + 6,
+                                y: y,
+                                size: 7.5,
+                                font: helv,
+                                color: gray
+                            });
+                            y -= 12;
+                            if (!opened.length) {
+                                page.drawText('Opened by: (not recorded)', {
+                                    x: CERT_LEFT + 6,
+                                    y: y,
+                                    size: 8.5,
+                                    font: helv,
+                                    color: gray
+                                });
+                                y -= 12;
+                            }
+                            for (var j = 0; j < opened.length; j++) {
+                                y = drawWrappedText(
+                                    page,
+                                    winAnsi(
+                                        (j === 0 ? 'Opened by: ' : '                  ') +
+                                            opened[j].name +
+                                            ', ' +
+                                            opened[j].at
+                                    ),
+                                    { x: CERT_LEFT + 6, y: y, size: 8.5, font: helv, color: gray, lineHeight: 12 }
+                                );
+                            }
+                            y -= 10;
+                        }
                     }
 
                     function addCertificatePage(doc, helv, helvBold, cert, meStamp) {
@@ -2738,6 +3721,11 @@
                                         });
                                         return chain.then(function () {
                                             var iAmCompleting = cert && cert.othersAllSigned;
+                                            if (iAmCompleting && cert.attachments && cert.attachments.length) {
+                                                // #412 — the approval register: which documents were
+                                                // attached, by version and SHA-256, and who opened them.
+                                                addAttachmentRegister(doc, helv, helvBold, cert);
+                                            }
                                             if (iAmCompleting) {
                                                 // Final signer: append the Certificate of Completion
                                                 // page. The authoritative integrity hash is computed
@@ -2874,6 +3862,8 @@
                     }
 
                     function openFinalSubmit() {
+                        // #412 — every attached document must be opened first (server-enforced too).
+                        if (!requireAttachmentsOpened()) return;
                         modalMode = 'final';
                         activeSpot = null;
                         document.getElementById('modal-draw-group').style.display = 'none';
