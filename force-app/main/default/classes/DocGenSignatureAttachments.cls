@@ -22,6 +22,8 @@ public inherited sharing class DocGenSignatureAttachments {
     private static Integer maxAttachments = 100;
     @TestVisible
     private static Long maxBytesPerAttachment = 20L * 1024L * 1024L; // 20 MB
+    @TestVisible
+    private static Boolean failCreateForTest = false; // proves a failed send commits nothing
 
     public static final String POSITION_BEFORE = 'Before';
     public static final String POSITION_AFTER = 'After';
@@ -196,14 +198,16 @@ public inherited sharing class DocGenSignatureAttachments {
     }
 
     /**
-     * Stores the pinned attachments on a request and one review row per signer × attachment.
-     * Called inside the send transaction, after the request and its signers exist.
+     * Stores the pinned attachments on a request. Called inside the send transaction right after
+     * the request is inserted and BEFORE signers are created and invited, so a failure here can
+     * never leave a live, invited request without its attachments (whose absence would open the
+     * approve gate).
      */
-    public static void createForRequest(Id requestId, List<AttachmentSpec> specs) {
-        if (requestId == null || specs == null || specs.isEmpty()) {
-            return;
-        }
+    public static List<DocGen_Signature_Attachment__c> createForRequest(Id requestId, List<AttachmentSpec> specs) {
         List<DocGen_Signature_Attachment__c> rows = new List<DocGen_Signature_Attachment__c>();
+        if (requestId == null || specs == null || specs.isEmpty()) {
+            return rows;
+        }
         for (AttachmentSpec s : specs) {
             rows.add(
                 new DocGen_Signature_Attachment__c(
@@ -219,10 +223,24 @@ public inherited sharing class DocGenSignatureAttachments {
                 )
             );
         }
+        if (failCreateForTest) {
+            throw new DocGenException('Forced attachment failure');
+        }
         DocGenFlsGuard.assertCreateable(rows, ATTACHMENT_FIELDS);
         /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
         Database.insert(rows, AccessLevel.SYSTEM_MODE);
+        return rows;
+    }
 
+    /**
+     * One review row per signer × attachment, once the signers exist. A missing row is
+     * recreated on first serve (reviewFor) and the approve gate counts attachments, not rows,
+     * so this step can't open the gate.
+     */
+    public static void createReviewRows(Id requestId, List<DocGen_Signature_Attachment__c> rows) {
+        if (requestId == null || rows == null || rows.isEmpty()) {
+            return;
+        }
         DocGenFlsGuard.assertAccessible(DocGen_Signer__c.sObjectType, new Set<String>{ 'Signature_Request__c' });
         /* code-analyzer-suppress ApexFlsViolation */
         List<DocGen_Signer__c> signers = [
@@ -324,6 +342,19 @@ public inherited sharing class DocGenSignatureAttachments {
      * opened it and when. Rides on the signature certificate, which already shows every signer's
      * name to each signer of the request. Empty when the request has no attachments.
      */
+    /**
+     * The register for a signer's own request, only once their link passes the full guest gate
+     * (PIN verified when required, not expired, request still open) — the certificate endpoint
+     * it rides on checks less. Empty otherwise.
+     */
+    public static List<Map<String, Object>> registerForToken(String token) {
+        GuestResult gate = resolveSigner(token);
+        if (gate.status != 200) {
+            return new List<Map<String, Object>>();
+        }
+        return registerForRequest(gate.signer.Signature_Request__c);
+    }
+
     public static List<Map<String, Object>> registerForRequest(Id requestId) {
         List<Map<String, Object>> register = manifestForSigner(requestId, null);
         if (register.isEmpty()) {
@@ -407,6 +438,10 @@ public inherited sharing class DocGenSignatureAttachments {
                 'Secure_Token__c'
             }
         );
+        DocGenFlsGuard.guestAssertAccessible(
+            DocGen_Signature_Request__c.sObjectType,
+            new Set<String>{ 'Status__c', 'Expires_At__c', 'Require_Email_Verification__c', 'Related_Record_Id__c' }
+        );
         /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
         List<DocGen_Signer__c> signers = [
             SELECT
@@ -417,7 +452,8 @@ public inherited sharing class DocGenSignatureAttachments {
                 Signature_Request__c,
                 Signature_Request__r.Status__c,
                 Signature_Request__r.Expires_At__c,
-                Signature_Request__r.Require_Email_Verification__c
+                Signature_Request__r.Require_Email_Verification__c,
+                Signature_Request__r.Related_Record_Id__c
             FROM DocGen_Signer__c
             WHERE Secure_Token__c = :token
             WITH SYSTEM_MODE
@@ -432,7 +468,7 @@ public inherited sharing class DocGenSignatureAttachments {
             return fail(r, 410, 'This signing link has expired.');
         }
         Set<String> closed = new Set<String>{ 'Signed', 'Cancelled', 'Declined' };
-        if (closed.contains(req.Status__c) || signer.Status__c == 'Signed' || signer.Status__c == 'Declined') {
+        if (closed.contains(req.Status__c) || closed.contains(signer.Status__c)) {
             return fail(r, 409, 'This signature request is no longer active.');
         }
         if (req.Require_Email_Verification__c != false && signer.PIN_Verified_At__c == null) {
@@ -461,23 +497,30 @@ public inherited sharing class DocGenSignatureAttachments {
         }
         DocGenFlsGuard.guestAssertAccessible(
             ContentVersion.sObjectType,
-            new Set<String>{ 'VersionData', 'Checksum', 'ContentSize' }
+            new Set<String>{ 'VersionData', 'Checksum', 'ContentSize', 'ContentDocumentId' }
         );
         // SYSTEM_MODE: the guest has no file access by design; the file served is the one pinned
-        // on the token's own request, addressed by index — no client-supplied Id.
+        // on the token's own request, addressed by index — no client-supplied Id. The stored
+        // pointer is re-verified before any bytes go out (privileged users can edit the rows): the
+        // version must belong to the pinned document, still be linked to the request's related
+        // record (the send-time rule), and match the checksum captured at send.
         /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
         List<ContentVersion> versions = [
-            SELECT VersionData, Checksum, ContentSize
+            SELECT VersionData, Checksum, ContentSize, ContentDocumentId
             FROM ContentVersion
             WHERE Id = :row.Content_Version_Id__c
             WITH SYSTEM_MODE
             LIMIT 1
         ];
-        if (versions.isEmpty()) {
-            return fail(r, 410, '"' + row.Title__c + '" is no longer available. Please contact the sender.');
+        String unavailable = '"' + row.Title__c + '" is no longer available. Please contact the sender.';
+        if (versions.isEmpty() || versions[0].ContentDocumentId != row.Content_Document_Id__c) {
+            return fail(r, 410, unavailable);
         }
         ContentVersion cv = versions[0];
-        if (String.isNotBlank(row.Platform_Checksum__c) && cv.Checksum != row.Platform_Checksum__c) {
+        if (!linkedToRecord(cv.ContentDocumentId, r.signer.Signature_Request__r.Related_Record_Id__c)) {
+            return fail(r, 410, unavailable);
+        }
+        if (String.isBlank(row.Platform_Checksum__c) || cv.Checksum != row.Platform_Checksum__c) {
             return fail(r, 409, '"' + row.Title__c + '" has changed since it was sent. Please contact the sender.');
         }
         String sha = EncodingUtil.convertToHex(Crypto.generateDigest('SHA-256', cv.VersionData));
@@ -609,12 +652,14 @@ public inherited sharing class DocGenSignatureAttachments {
             new Set<String>{ 'Signer__c', 'Attachment__c', 'Viewed_At__c' }
         );
         /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
-        Integer viewed = [
-            SELECT COUNT()
+        // Distinct attachments, so a duplicated review row can't count one file twice.
+        List<AggregateResult> agg = [
+            SELECT COUNT_DISTINCT(Attachment__c) n
             FROM DocGen_Signer_Attachment__c
             WHERE Signer__c = :signerId AND Viewed_At__c != NULL AND Attachment__r.Signature_Request__c = :requestId
             WITH SYSTEM_MODE
         ];
+        Integer viewed = agg.isEmpty() || agg[0].get('n') == null ? 0 : (Integer) agg[0].get('n');
         return Math.max(0, total - viewed);
     }
 
@@ -635,6 +680,30 @@ public inherited sharing class DocGenSignatureAttachments {
         ];
     }
 
+    private static Boolean linkedToRecord(Id contentDocumentId, String relatedRecordId) {
+        if (contentDocumentId == null || String.isBlank(relatedRecordId)) {
+            return false;
+        }
+        Id recordId;
+        try {
+            recordId = Id.valueOf(relatedRecordId);
+        } catch (Exception e) {
+            return false;
+        }
+        DocGenFlsGuard.guestAssertAccessible(
+            ContentDocumentLink.sObjectType,
+            new Set<String>{ 'ContentDocumentId', 'LinkedEntityId' }
+        );
+        /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
+        Integer links = [
+            SELECT COUNT()
+            FROM ContentDocumentLink
+            WHERE ContentDocumentId = :contentDocumentId AND LinkedEntityId = :recordId
+            WITH SYSTEM_MODE
+        ];
+        return links > 0;
+    }
+
     private static DocGen_Signature_Attachment__c attachmentAt(Id requestId, Integer index) {
         DocGenFlsGuard.guestAssertAccessible(
             DocGen_Signature_Attachment__c.sObjectType,
@@ -642,6 +711,7 @@ public inherited sharing class DocGenSignatureAttachments {
                 'Signature_Request__c',
                 'Sort_Order__c',
                 'Content_Version_Id__c',
+                'Content_Document_Id__c',
                 'Platform_Checksum__c',
                 'Sha256__c',
                 'Title__c'
@@ -649,7 +719,7 @@ public inherited sharing class DocGenSignatureAttachments {
         );
         /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
         List<DocGen_Signature_Attachment__c> rows = [
-            SELECT Id, Content_Version_Id__c, Platform_Checksum__c, Sha256__c, Title__c
+            SELECT Id, Content_Version_Id__c, Content_Document_Id__c, Platform_Checksum__c, Sha256__c, Title__c
             FROM DocGen_Signature_Attachment__c
             WHERE Signature_Request__c = :requestId AND Sort_Order__c = :index
             WITH SYSTEM_MODE

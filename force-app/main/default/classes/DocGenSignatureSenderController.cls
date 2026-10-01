@@ -1794,6 +1794,12 @@ public with sharing class DocGenSignatureSenderController {
         // preview (getSourcePdfBase64) can read it (see shareViewingDocumentWithGuest).
         shareViewingDocumentWithGuest(viewCv.Id, req.Id);
 
+        // #412: attached documents go on the request before any signer is created or invited.
+        List<DocGen_Signature_Attachment__c> attachmentRows = DocGenSignatureAttachments.createForRequest(
+            req.Id,
+            attachments
+        );
+
         // Create signers at the PDF-viewer page (templateId=null skips the classic
         // placement creation — we create sentinel-keyed placements below).
         List<SignerResult> results = createSignersAndNotify(
@@ -1810,8 +1816,8 @@ public with sharing class DocGenSignatureSenderController {
             prefillSignerEmail
         );
 
-        // #412: attached documents + one review row per signer (same transaction as the send).
-        DocGenSignatureAttachments.createForRequest(req.Id, attachments);
+        // #412: one review row per signer per attached document.
+        DocGenSignatureAttachments.createReviewRows(req.Id, attachmentRows);
 
         // Map placements → signers by role (fallback: first signer), Tag_Text__c = sentinel.
         DocGenFlsGuard.assertAccessible(

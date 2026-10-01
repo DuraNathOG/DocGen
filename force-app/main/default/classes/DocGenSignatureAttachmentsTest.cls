@@ -580,4 +580,177 @@ private class DocGenSignatureAttachmentsTest {
             'Nothing marked'
         );
     }
+
+    // ------------------------------------------------- security review fixes
+
+    @IsTest
+    static void certificate_withholdsRegisterUntilPinVerified() {
+        Id tplId = createTaggedTemplate();
+        send(tplId, oneSigner(), drawingIds(), 'Before', true);
+        DocGen_Signer__c s = signer(tplId);
+
+        Test.startTest();
+        List<Object> beforePin = (List<Object>) DocGenSignatureController.getSignatureCertificate(s.Secure_Token__c)
+            .get('attachments');
+        s.PIN_Verified_At__c = System.now();
+        update s;
+        List<Object> afterPin = (List<Object>) DocGenSignatureController.getSignatureCertificate(s.Secure_Token__c)
+            .get('attachments');
+        Test.stopTest();
+
+        Assert.areEqual(0, beforePin.size(), 'No register before the email PIN check');
+        Assert.areEqual(2, afterPin.size(), 'Register once verified');
+    }
+
+    @IsTest
+    static void serve_reverifiesThePinnedFileBeforeSendingBytes() {
+        Id tplId = createTaggedTemplate();
+        send(tplId, oneSigner(), drawingIds(), 'Before', false);
+        DocGen_Signer__c s = signer(tplId);
+        DocGen_Signature_Attachment__c first = [
+            SELECT Id, Content_Version_Id__c, Content_Document_Id__c, Platform_Checksum__c
+            FROM DocGen_Signature_Attachment__c
+            WHERE Sort_Order__c = 0
+        ];
+        DocGen_Signature_Attachment__c second = [
+            SELECT Id, Content_Document_Id__c
+            FROM DocGen_Signature_Attachment__c
+            WHERE Sort_Order__c = 1
+        ];
+        Account other = new Account(Name = 'Elsewhere');
+        insert other;
+        ContentVersion foreign = new ContentVersion(
+            Title = 'Not on this record',
+            PathOnClient = 'foreign.pdf',
+            VersionData = Blob.valueOf('%PDF-1.4 foreign'),
+            FirstPublishLocationId = other.Id
+        );
+        insert foreign;
+        foreign = [SELECT Id, ContentDocumentId, Checksum FROM ContentVersion WHERE Id = :foreign.Id];
+
+        Test.startTest();
+        // Blank checksum → fail closed.
+        update new DocGen_Signature_Attachment__c(Id = first.Id, Platform_Checksum__c = null);
+        Integer blankChecksum = DocGenSignatureAttachments.serve(s.Secure_Token__c, 0).status;
+        // Version re-pointed to another document's version → refused.
+        update new DocGen_Signature_Attachment__c(
+            Id = first.Id,
+            Platform_Checksum__c = first.Platform_Checksum__c,
+            Content_Version_Id__c = foreign.Id
+        );
+        Integer wrongDocument = DocGenSignatureAttachments.serve(s.Secure_Token__c, 0).status;
+        // Whole pointer re-aimed at a file that isn't linked to the request's record → refused.
+        update new DocGen_Signature_Attachment__c(
+            Id = first.Id,
+            Content_Document_Id__c = foreign.ContentDocumentId,
+            Platform_Checksum__c = foreign.Checksum
+        );
+        Integer notLinked = DocGenSignatureAttachments.serve(s.Secure_Token__c, 0).status;
+        // A file unlinked from the record after send is no longer served.
+        delete [
+            SELECT Id
+            FROM ContentDocumentLink
+            WHERE ContentDocumentId = :second.Content_Document_Id__c AND LinkedEntityId = :account().Id
+        ];
+        Integer unlinked = DocGenSignatureAttachments.serve(s.Secure_Token__c, 1).status;
+        Test.stopTest();
+
+        Assert.areEqual(409, blankChecksum, 'A blank checksum fails closed');
+        Assert.areEqual(410, wrongDocument, 'A version from another document is refused');
+        Assert.areEqual(410, notLinked, 'A file not linked to the related record is refused');
+        Assert.areEqual(410, unlinked, 'A file unlinked after send is refused');
+    }
+
+    @IsTest
+    static void flowAction_failedSendCommitsNothing() {
+        Id tplId = createTaggedTemplate();
+        DocGenSigner sg = new DocGenSigner();
+        sg.name = 'Ada Approver';
+        sg.email = 'ada@example.com';
+        sg.role = 'Approver';
+        DocGenSignatureFlowAction.Request req = new DocGenSignatureFlowAction.Request();
+        req.templateId = tplId;
+        req.relatedRecordId = account().Id;
+        req.signerRecords = new List<DocGenSigner>{ sg };
+        req.sendEmails = false;
+        req.requireEmailVerification = false;
+        req.attachedDocumentIds = drawingIds();
+
+        Test.startTest();
+        DocGenSignatureAttachments.failCreateForTest = true;
+        DocGenSignatureFlowAction.Result r = DocGenSignatureFlowAction.generate(
+            new List<DocGenSignatureFlowAction.Request>{ req }
+        )[0];
+        Test.stopTest();
+
+        Assert.isFalse(r.success, 'Reported as failed');
+        Assert.areEqual(0, [SELECT COUNT() FROM DocGen_Signature_Request__c], 'No request left behind');
+        Assert.areEqual(0, [SELECT COUNT() FROM DocGen_Signer__c], 'No signer left behind');
+    }
+
+    @IsTest
+    static void cancelledSignerAndDuplicateReviewRowsDontOpenTheGate() {
+        Id tplId = createTaggedTemplate();
+        send(tplId, oneSigner(), drawingIds(), 'Before', false);
+        DocGen_Signer__c s = signer(tplId);
+        signAllPlacements(s.Id);
+        DocGen_Signature_Attachment__c first = [
+            SELECT Id
+            FROM DocGen_Signature_Attachment__c
+            WHERE Sort_Order__c = 0
+        ];
+
+        Test.startTest();
+        DocGenSignatureAttachments.serve(s.Secure_Token__c, 0);
+        DocGenSignatureController.markAttachmentViewed(s.Secure_Token__c, 0);
+        // A duplicate (signer, attachment) row, also viewed, must not count as the second file.
+        insert new DocGen_Signer_Attachment__c(
+            Signer__c = s.Id,
+            Attachment__c = first.Id,
+            Fetched_At__c = System.now(),
+            Viewed_At__c = System.now()
+        );
+        DocGenSignatureController.SavePdfSignatureResult blocked = composite(s.Secure_Token__c);
+        update new DocGen_Signer__c(Id = s.Id, Status__c = 'Cancelled');
+        Integer cancelled = DocGenSignatureAttachments.serve(s.Secure_Token__c, 1).status;
+        Test.stopTest();
+
+        Assert.isFalse(blocked.success, 'One file opened twice is still one file');
+        Assert.isTrue(blocked.message.contains('1 not yet opened'), blocked.message);
+        Assert.areEqual(409, cancelled, 'A cancelled signer is closed');
+    }
+
+    @IsTest
+    static void requestTokenSubmitPathIsRefusedForAttachmentRequests() {
+        Id tplId = createTaggedTemplate();
+        send(tplId, oneSigner(), drawingIds(), 'Before', false);
+        String requestToken = [
+            SELECT Secure_Token__c
+            FROM DocGen_Signature_Request__c
+            WHERE Id = :signer(tplId).Signature_Request__c
+        ]
+        .Secure_Token__c;
+
+        Test.startTest();
+        String message;
+        try {
+            DocGenSignatureService.handleSignatureSubmission(requestToken, 'Ada Approver');
+        } catch (Exception e) {
+            message = e.getMessage();
+        }
+        Test.stopTest();
+
+        Assert.isNotNull(message, 'Refused');
+        Assert.isTrue(message.contains('attached documents'), message);
+    }
+
+    @IsTest
+    static void rest_setsFileHeadersAndSafeName() {
+        Assert.areEqual(
+            'GA-001 _ rev_B_',
+            DocGenSignatureAttachmentRest.safeFileName('GA-001 / rev"B"'),
+            'Unsafe chars'
+        );
+        Assert.areEqual('document', DocGenSignatureAttachmentRest.safeFileName(null), 'Default name');
+    }
 }

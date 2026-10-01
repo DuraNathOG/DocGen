@@ -3371,7 +3371,8 @@ public without sharing class DocGenSignatureController {
             // cert then omits the link (file-drop verification still works).
             'verifyUrl' => DocGenSignatureService.buildVerifyUrl(reqId),
             // #412 — the approval register: each attached document and who opened it when.
-            'attachments' => DocGenSignatureAttachments.registerForRequest(reqId)
+            // Only for a link that passes the attachment gate (PIN, expiry, open request).
+            'attachments' => DocGenSignatureAttachments.registerForToken(token)
         };
     }
 }

@@ -3408,6 +3408,21 @@
                         })();
                         return getCertificateData()
                             .then(function (cert) {
+                                // #412 — never finish an attachment request without its register:
+                                // a missing or short register would leave an approval that doesn't
+                                // say which documents were approved.
+                                var expected =
+                                    signerData && signerData.attachmentCount ? signerData.attachmentCount : 0;
+                                if (
+                                    expected &&
+                                    (!cert ||
+                                        (cert.othersAllSigned &&
+                                            (!cert.attachments || cert.attachments.length !== expected)))
+                                ) {
+                                    throw new Error(
+                                        'The attached-documents register could not be loaded. Please try again.'
+                                    );
+                                }
                                 var bytes = b64ToBytes(sourcePdfBase64);
                                 return PDFLib.PDFDocument.load(bytes).then(function (doc) {
                                     return Promise.all([

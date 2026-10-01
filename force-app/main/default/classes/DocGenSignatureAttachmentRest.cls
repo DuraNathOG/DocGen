@@ -11,9 +11,13 @@
  * The token travels in a header, never the URL, so it stays out of access logs and history. All
  * gating (token, expiry, terminal state, PIN, index range, pinned version unchanged) lives in
  * DocGenSignatureAttachments.serve; this class only translates to and from HTTP.
+ *
+ * The GET writes evidence (the SHA-256 on first serve, the signer's Fetched At): it is not
+ * CSRF-reachable, because the token has to arrive in a custom header, which a cross-site request
+ * cannot set without a CORS preflight the Site never grants.
  */
 @RestResource(urlMapping='/signature-attachment/*')
-global without sharing class DocGenSignatureAttachmentRest {
+global without sharing class DocGenSignatureAttachmentRest { // NOPMD AvoidGlobalModifier — Apex REST resources must be global
     @TestVisible
     private static final String TOKEN_HEADER = 'X-Portwood-Token';
 
@@ -22,6 +26,7 @@ global without sharing class DocGenSignatureAttachmentRest {
         RestRequest req = RestContext.request;
         RestResponse res = RestContext.response;
         res.addHeader('Cache-Control', 'no-store');
+        res.addHeader('Vary', TOKEN_HEADER); // one URL serves every signer; never share a cached copy
         res.addHeader('X-Content-Type-Options', 'nosniff');
 
         Integer index;
@@ -36,6 +41,7 @@ global without sharing class DocGenSignatureAttachmentRest {
         try {
             result = DocGenSignatureAttachments.serve(header(req, TOKEN_HEADER), index);
         } catch (Exception e) {
+            DocGenErrorLogger.log('DocGenSignatureAttachmentRest', e);
             result = new DocGenSignatureAttachments.GuestResult();
             result.status = 500;
             result.error = 'The attached document could not be loaded. Please try again.';
@@ -49,8 +55,15 @@ global without sharing class DocGenSignatureAttachmentRest {
         }
         res.statusCode = 200;
         res.addHeader('Content-Type', 'application/pdf');
+        res.addHeader('Content-Disposition', 'inline; filename="' + safeFileName(result.title) + '.pdf"');
         res.addHeader('X-Portwood-Sha256', result.sha256);
         res.responseBody = result.bytes;
+    }
+
+    @TestVisible
+    private static String safeFileName(String title) {
+        String name = String.isBlank(title) ? 'document' : title.replaceAll('[^A-Za-z0-9 ._()-]', '_');
+        return name.left(120);
     }
 
     /** Header lookup, case-insensitive — HTTP/2 clients send header names lower-cased. */

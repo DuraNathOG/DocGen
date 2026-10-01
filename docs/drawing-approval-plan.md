@@ -211,7 +211,31 @@ Goal: replace estimates with measurements and de-risk real drawings.
 
 - [x] Apex `DocGenSignatureAttachmentsTest` (14): pinning and review rows; version pin and dedupe; every refusal (not PDF, not linked, bad Id, wrong type, bad position, count, size; nothing created); no-attachment parity; picker; Flow success and error; manifest public-safe and PIN-gated; serve (raw bytes, headers, hash stored, out of range, tampered hash, changed checksum); token, PIN, expiry and terminal gates; REST errors; approve gate, idempotent views, never-delivered refusal, register content; fallbacks refused and decline still works; cross-request scoping.
 - [x] Content-correctness, end to end on the dev box: signed PDFs downloaded and parsed. Register entries and SHA-256s match the server records; 14 entries paginate.
-- [ ] Adversarial guest-security review: running.
+- [x] Adversarial guest-security review (2026-10-01): **0 Critical / 0 High.** Four Mediums fixed on the branch:
+    - **M1:** a failed Flow send now rolls back (savepoint), and attachment rows are written before any signer is invited.
+    - **M2:** the register on `getSignatureCertificate` is only returned behind the same PIN/expiry/status gate.
+    - **M3:** the page refuses to finish an attachment request when the register data is missing or short.
+    - **M4:** `serve` re-checks the pinned version belongs to the pinned document, is still linked to the related record, and has a matching, non-blank checksum.
+
+    Lows fixed:
+    - distinct-file gate count;
+    - request-field FLS guard;
+    - a Cancelled signer is treated as closed;
+    - the request-token Flow submit path refuses attachment requests;
+    - `Vary` / `Content-Disposition` headers and error logging on the REST class;
+    - DocGen_User can create the new rows but not edit them.
+
+    Still open:
+    - per-token rate limiting of the REST GET (L5);
+    - optional HMAC over the pinned pointer;
+    - a server-held copy of the register (the per-signer rows are the durable evidence today);
+    - a versioned REST path (`/v1/`) — a maintainer call.
+
+    Pre-existing issues the review noted, outside #412's scope:
+    - the finalize endpoints don't refuse Declined or Cancelled requests;
+    - `getSourcePdfBase64` and `getSignatureCertificate` have no PIN check;
+    - sequential order isn't enforced server-side.
+
 - [ ] `npm run qa`; namespaced pre-flight org; Code Analyzer. _`RunLocalTests` on the dev box: see §6.1._
 - [x] UserGuide §10.3.1 + CHANGELOG entry.
 

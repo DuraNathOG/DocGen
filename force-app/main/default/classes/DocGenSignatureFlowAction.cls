@@ -278,7 +278,10 @@ global with sharing class DocGenSignatureFlowAction { // NOPMD AvoidGlobalModifi
             );
         }
 
-        // Runtime errors (template not found, DML failures) are caught and returned in Result
+        // Runtime errors (template not found, DML failures) are caught and returned in Result.
+        // The savepoint makes a failed send all-or-nothing: without it, work done before the
+        // failure (request, signers, queued invites) would commit with the Flow told it failed.
+        Savepoint beforeSend = Database.setSavepoint();
         try {
             // A Template Id that does not resolve is the likeliest Flow-author
             // mistake — a deleted template, or one copied from another org.
@@ -400,6 +403,7 @@ global with sharing class DocGenSignatureFlowAction { // NOPMD AvoidGlobalModifi
 
             r.success = true;
         } catch (Exception e) {
+            Database.rollback(beforeSend);
             r.errorMessage = e.getMessage();
             r.success = false;
         }
