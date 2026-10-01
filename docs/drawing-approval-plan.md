@@ -1,7 +1,7 @@
 # Drawing Approval — Sign Against Existing Record PDFs — Plan
 
-> **Branch:** `feat/drawing-pdf-merge` (off `main` @ v3.57.0, `62183ca`)
-> **Status:** DRAFT / RFC — design pending maintainer agreement on #412. Successor to closed PR #197 (`exp/document-markup`, closed as dormant 2026-08-10).
+> **Branch:** `feat/drawing-pdf-merge` (off `main` @ v3.57.0, `62183ca`) for the plan; M1 is built on `feat/412-drawing-approval` (stacked on #423's `fix/413-signing-page-device-resolution`).
+> **Status:** M1 BUILT on the fork (2026-10-01), ahead of the maintainer's decisions. Every §8 question is answered _provisionally_ in §6.1 and can still change before a PR. Successor to closed PR #197 (`exp/document-markup`, closed as dormant 2026-08-10).
 > **Related:** #405 (template-defined supplemental PDFs — same concept, generation only), #407 (guided page fails open to the server re-render), #413 (signing page renders below screen resolution; no zoom), #373 / #404 (sender UI work in flight).
 > **How to use this doc:** decisions in §4 are _proposed_ until the RFC is agreed. Work milestones in order; tick boxes and leave a one-line note on anything that changes.
 
@@ -186,34 +186,58 @@ Goal: replace estimates with measurements and de-risk real drawings.
 
 ### Backend
 
-- [ ] `DocGen_Signature_Attachment__c` + fields + permission sets (Admin/User as appropriate; **no guest object access** — token-keyed `SYSTEM_MODE` only).
-- [ ] Send: attachments on the canonical `createGuidedPdfSignatureRequest` (options DTO vs another overload — agree in RFC); validation per §4.2; size + count caps; SHA-256 (sync vs Queueable per file — M0 item).
-- [ ] Flow: `DocGenSignatureFlowAction.Request` gains `global` `@InvocableVariable`s `attachedDocumentIds` (`List<String>`, CV or CD Ids) and `attachedDocumentPosition` (`Before` default). Verify in a namespaced org.
-- [ ] Guest: manifest on the init response; attachment fetch by **token + index** per D3 (T3 REST GET, or T2 chunked remote action), with the same gates as `getSourcePdfBase64` — token format, `assertSignerReadable`, expiry, terminal state, PIN-verified when required. If T3: `global` REST class, guest class access in `DocGen_Guest_Signature`, namespaced URL (`/services/apexrest/portwoodglobal/...`), no caching headers.
-- [ ] Server-path certificate (`DocGenSignatureService` verification block) lists attachments (D6).
-- [ ] Coordinate the fail-closed guard with #407.
+- [x] `DocGen_Signature_Attachment__c` + fields, plus `DocGen_Signer_Attachment__c` (per-signer review row: `Fetched_At__c`, `Viewed_At__c`; the M2 markup hangs off it). Permission sets: Admin full, User create/read, **guest no object access** (class access to the REST endpoint only).
+- [x] Send: new `@AuraEnabled createGuidedPdfSignatureRequestWithAttachments` (13 args) beside the unchanged 11-arg canonical; both, and the Flow action, run `sendGuidedPdfRequest`. Validation per §4.2 runs **before** the merge and any DML. Caps 20 MB / 100 files. SHA-256 **on first serve**, not at send (see §6.1).
+- [x] Flow: `attachedDocumentIds` + `attachedDocumentPosition` on `DocGenSignatureFlowAction.Request`. Attachment errors are `DocGenException`, so the action returns `success=false` instead of faulting the interview. _Namespaced-org check still to do._
+- [x] Guest: `attachmentCount` on init; the manifest comes from a separate PIN-gated `getAttachmentManifest`, so titles never show before verification. T3 `DocGenSignatureAttachmentRest` (`GET /signature-attachment?index=N`, token in an `X-Portwood-Token` header, never the URL), with the same gates as the signing endpoints plus pinned-version checks. `no-store` and `nosniff` headers.
+- [x] ~~Server-path certificate lists attachments~~. **Changed:** the server re-render fallbacks (`saveSignature`, `savePdfSignature`, legacy request-token stamp) **refuse** requests with attachments, so only the client composite (which draws the register) can finalize them. Fail closed instead of a second register builder.
+- [x] Fail-closed coordination with #407: #407 shipped in v3.58. The new gates sit after its placement gate in each finalize method.
 
 ### Signing page (`DocGenSignaturePdf.page`)
 
-- [ ] Multi-document viewer: template + drawing index; fetch each drawing on open, verify SHA-256 (WebCrypto), render pages lazily; release canvases of drawings not in view.
-- [ ] DPR-aware rendering (the #413 fix — land it first, or as part of this PR) and **zoom that re-renders** the visible page (fit / + / − and pinch, debounced; soft render shown until the sharp one lands); visible-region rendering at high zoom.
-- [ ] "Rendering…" placeholder with progress for heavy pages (~10 s per page measured on the heaviest sample).
-- [ ] Approve available once the signer has opened every drawing? (product decision — see Q9).
-- [ ] `addCertificatePage` lists attachments (title, version, SHA-256), paginating for dozens.
-- [ ] Fail closed on any attachment error (no silent fallback).
+- [x] Multi-document viewer: a document switcher (prev / list / next) with ticks, and a separate attachment pane. Each drawing is fetched on open with a progress bar, SHA-256 checked in the browser against the server's header, and rendered page by page; switching away frees its canvases and PDF.js document. The signing document keeps its own page set, so anchors and stamping are untouched.
+- [x] #413 DPR rendering and pinch-zoom re-render extend to attachment pages. Added document-level zoom buttons (Fit to 400%) that re-render the drawing inside a height-bound box, so the chrome stays put. _Visible-region rendering at deep zoom is not done; each page stays capped at 16.7 MP._
+- [x] Loading placeholder with download progress.
+- [x] Approve needs every attachment opened (Q9 yes): enforced in the page and in `saveCompositedSignedPdf`.
+- [x] Register: a separate **Attached Documents** page (paginates, "continued") before the Certificate of Completion. It lists title, version, size, position, SHA-256 and opened-by name and time.
+- [x] Fail closed: a failed manifest blocks the page; a failed attachment shows the error with **Try again**, and without it there's no approval.
 
 ### Sender LWC (`docGenSignatureSender`)
 
-- [ ] Record-PDF picker (reuse `DocGenController.getRecordPdfs`, `:5663`; add size), **select all**, order + before/after, size/count warnings. Keep the change small — #373 is reworking this component.
-- [ ] Warn when Decline is hidden on the template/org.
+- [x] Record-PDF picker (`getAttachableRecordPdfs`: USER*MODE, size, oversize flagged), **Select all**, Before/After. Order is the picker's (by title). \_Manual reordering not built.* Single-template sends only.
+- [ ] Warn when Decline is hidden on the template/org (not built).
 
 ### Tests & gates
 
-- [ ] Apex: send validation (no access, not a PDF, not linked to record, over size/count cap, deleted file); guest IDOR (token A cannot read request B's attachments), index out of range, expired, declined/terminal, PIN not verified; Flow action; certificate content.
-- [ ] Content-correctness (signing has none today — see repo `CLAUDE.md` "Subsystem caution"): an end-to-end check that the stored approval PDF's certificate lists every attachment with the right SHA-256, and contains no unresolved `@@SIG-` token (ties to #407).
-- [ ] Adversarial guest-security review of the new endpoint(s) — mandatory if T3 (first guest REST surface).
-- [ ] `npm run qa`; namespaced pre-flight org (`RunLocalTests`, no perm set assigned); prettier; Code Analyzer.
-- [ ] UserGuide section + CHANGELOG entry.
+- [x] Apex `DocGenSignatureAttachmentsTest` (14): pinning and review rows; version pin and dedupe; every refusal (not PDF, not linked, bad Id, wrong type, bad position, count, size; nothing created); no-attachment parity; picker; Flow success and error; manifest public-safe and PIN-gated; serve (raw bytes, headers, hash stored, out of range, tampered hash, changed checksum); token, PIN, expiry and terminal gates; REST errors; approve gate, idempotent views, never-delivered refusal, register content; fallbacks refused and decline still works; cross-request scoping.
+- [x] Content-correctness, end to end on the dev box: signed PDFs downloaded and parsed. Register entries and SHA-256s match the server records; 14 entries paginate.
+- [ ] Adversarial guest-security review: running.
+- [ ] `npm run qa`; namespaced pre-flight org; Code Analyzer. _`RunLocalTests` on the dev box: see §6.1._
+- [x] UserGuide §10.3.1 + CHANGELOG entry.
+
+### 6.1 M1 build notes (2026-10-01)
+
+**Provisional answers to §8**, chosen to keep options open:
+
+| Q   | Built as                                                                                            | Easy to change?                                             |
+| --- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| 1   | Approval record + register page (D1)                                                                | Yes (client only)                                           |
+| 2   | T3 guest REST GET. First `@RestResource` in the package                                             | Moderate: T2 would replace one fetch function and one class |
+| 3   | Two child objects. Names are frozen once released, so agree before merge. Could be shared with #405 | **Only before release**                                     |
+| 4   | New method name (`…WithAttachments`); `@AuraEnabled` can't be overloaded                            | Yes                                                         |
+| 5   | Attachments must be linked to the related record                                                    | Yes                                                         |
+| 6   | Not built (no warning when Decline is hidden)                                                       | Yes                                                         |
+| 7   | #407 landed first (v3.58)                                                                           | —                                                           |
+| 8   | Caps above the documented heap (20 MB). The 16.6 MB sample served fine                              | Yes (`@TestVisible` caps)                                   |
+| 9   | 20 MB / 100 files; must open every attachment                                                       | Yes                                                         |
+
+**SHA-256 timing.** Hashing at send would read every file's `VersionData` in the sender's transaction: up to 100 × 20 MB. At send the row pins the ContentVersion Id plus the platform `Checksum`. The first serve computes SHA-256 and stores it; every later serve must match both. Versions are immutable, so this is belt and braces. The register's hash is the one the signer's browser verified.
+
+**"Opened" means delivered and rendered.** `serve` stamps the signer's `Fetched_At__c`; `markAttachmentViewed` is refused until then and is called once page 1 renders. A signer scripting the endpoints can still mark a file opened without looking at it. That's the same limit as scrolling a contract, and the register records it as such.
+
+**Measured on the dev box** (desktop Chrome, guest Site, files from §5.2): REST fetch of 13.6 MB took 2.6 s. Norwich (16.6 MB, 5 pp) was fetched, hashed and had page 1 drawn and recorded in 4.6 s. A 0.95 MB Gresham sheet took under 3 s. These are upper bounds: the test tab was hidden, so Chrome throttled its timers.
+
+**Known gaps:** a namespaced-org check (Flow input visibility, `/services/apexrest/portwoodglobal/…` path); a real-phone pass on the attachment pane; the Decline-hidden warning; manual reordering in the picker. Visible-region rendering at deep zoom belongs in #424.
 
 ## 7. Guardrails so M1 doesn't box in M2 (markup / redline)
 

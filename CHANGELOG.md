@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### Added
+
+- **Attach existing PDFs from the record to a signature request: drawing approval (#412).**
+  A guided signature request can now carry PDFs that already sit on the related record (an
+  issued drawing set, a specification), shown to signers alongside the template instead of
+  being merged into it. The template is the approval form; each attachment is its own
+  document on the signing page.
+    - **Send.** The Signature Sender lists the record's PDFs (single-template sends) with
+      Select all and a Before/After position. Flow gets the same through two new optional
+      inputs on **Portwood: Create Signature Request**: **Attached Documents** (file Ids) and
+      **Attached Documents Position**. Each file is pinned to its version at send. Limits are
+      100 files per request and 20 MB each, PDFs on the related record only, refused for
+      `{#Signatures}` loop-only templates. A bad selection is reported, never half-sent.
+    - **Sign.** A document switcher with per-document ticks, one attachment loaded at a time
+      with document-level zoom buttons, and the existing device-resolution and pinch-zoom
+      rendering. Attachments stream as raw bytes from a new token-keyed guest Apex REST
+      endpoint (`signature-attachment`), because drawings run past what Visualforce
+      remoting can carry. 16.6 MB sheets load in seconds. The browser checks each download
+      against the server's SHA-256.
+    - **Approve gate.** Every attachment must be opened before the signer can finish. This is
+      enforced in the page and in `saveCompositedSignedPdf`; the server re-render fallbacks
+      are refused for requests with attachments. Decline is unaffected.
+    - **Approval register.** The signed PDF gains an **Attached Documents** page before the
+      Certificate of Completion, listing each attachment's version, size, SHA-256 and who
+      opened it when. The attachments themselves stay unchanged on the record.
+    - New objects: `DocGen_Signature_Attachment__c` (the pinned file per request) and
+      `DocGen_Signer_Attachment__c` (each signer's review of each file: opened now, markup
+      later). Permission sets updated; the guest set stays read-only and gains class access
+      to the REST endpoint.
+
 ### Fixed
 
 - **The signing page is sharp on phones and HiDPI screens, and stays sharp when you
