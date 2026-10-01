@@ -490,6 +490,12 @@ public inherited sharing class DocGenSignatureAttachments {
             /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
             Database.update(row, false, AccessLevel.SYSTEM_MODE);
         }
+        // Delivery evidence for this signer: Viewed At can only be recorded once the bytes went out.
+        DocGen_Signer_Attachment__c review = reviewFor(r.signer.Id, row.Id);
+        if (review.Fetched_At__c == null) {
+            review.Fetched_At__c = System.now();
+            saveReview(review, 'Fetched_At__c');
+        }
         r.bytes = cv.VersionData;
         r.sha256 = sha;
         r.title = row.Title__c;
@@ -498,7 +504,9 @@ public inherited sharing class DocGenSignatureAttachments {
 
     /**
      * Records that the signer opened attachment [index] (the signing page calls this once the
-     * attachment's first page has rendered). Idempotent: the first view time is kept.
+     * attachment's first page has rendered). Refused until the file has been delivered to this
+     * signer's link (serve), so "opened" always means the bytes reached them. Idempotent: the
+     * first view time is kept.
      */
     public static Map<String, Object> markViewed(String token, Integer index) {
         GuestResult r = resolveSigner(token);
@@ -509,45 +517,54 @@ public inherited sharing class DocGenSignatureAttachments {
         if (row == null) {
             return new Map<String, Object>{ 'success' => false, 'message' => 'Attached document not found.' };
         }
-        DocGenFlsGuard.guestAssertAccessible(
-            DocGen_Signer_Attachment__c.sObjectType,
-            new Set<String>{ 'Signer__c', 'Attachment__c', 'Viewed_At__c' }
-        );
-        /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
-        List<DocGen_Signer_Attachment__c> reviews = [
-            SELECT Id, Viewed_At__c
-            FROM DocGen_Signer_Attachment__c
-            WHERE Signer__c = :r.signer.Id AND Attachment__c = :row.Id
-            WITH SYSTEM_MODE
-            LIMIT 1
-        ];
-        DocGen_Signer_Attachment__c review;
-        if (reviews.isEmpty()) {
-            review = new DocGen_Signer_Attachment__c(
-                Signer__c = r.signer.Id,
-                Attachment__c = row.Id,
-                Viewed_At__c = System.now()
-            );
-            DocGenFlsGuard.guestAssertCreateable(
-                review,
-                new Set<String>{ 'Signer__c', 'Attachment__c', 'Viewed_At__c' }
-            );
-            /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
-            Database.insert(review, AccessLevel.SYSTEM_MODE);
-        } else {
-            review = reviews[0];
-            if (review.Viewed_At__c == null) {
-                review.Viewed_At__c = System.now();
-                DocGenFlsGuard.guestAssertUpdateable(review, new Set<String>{ 'Viewed_At__c' });
-                /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
-                Database.update(review, AccessLevel.SYSTEM_MODE);
-            }
+        DocGen_Signer_Attachment__c review = reviewFor(r.signer.Id, row.Id);
+        if (review.Fetched_At__c == null) {
+            return new Map<String, Object>{
+                'success' => false,
+                'message' => 'Open the attached document before it can be marked as opened.'
+            };
+        }
+        if (review.Viewed_At__c == null) {
+            review.Viewed_At__c = System.now();
+            saveReview(review, 'Viewed_At__c');
         }
         return new Map<String, Object>{
             'success' => true,
             'viewedAt' => isoUtc(review.Viewed_At__c),
             'remaining' => unviewedCount(r.signer.Id, r.signer.Signature_Request__c)
         };
+    }
+
+    // This signer's review row for one attachment; a new, unsaved row if the send-time row is
+    // missing (e.g. a signer added after send).
+    private static DocGen_Signer_Attachment__c reviewFor(Id signerId, Id attachmentId) {
+        DocGenFlsGuard.guestAssertAccessible(
+            DocGen_Signer_Attachment__c.sObjectType,
+            new Set<String>{ 'Signer__c', 'Attachment__c', 'Viewed_At__c', 'Fetched_At__c' }
+        );
+        /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
+        List<DocGen_Signer_Attachment__c> reviews = [
+            SELECT Id, Viewed_At__c, Fetched_At__c
+            FROM DocGen_Signer_Attachment__c
+            WHERE Signer__c = :signerId AND Attachment__c = :attachmentId
+            WITH SYSTEM_MODE
+            LIMIT 1
+        ];
+        return reviews.isEmpty()
+            ? new DocGen_Signer_Attachment__c(Signer__c = signerId, Attachment__c = attachmentId)
+            : reviews[0];
+    }
+
+    private static void saveReview(DocGen_Signer_Attachment__c review, String field) {
+        if (review.Id == null) {
+            DocGenFlsGuard.guestAssertCreateable(review, new Set<String>{ 'Signer__c', 'Attachment__c', field });
+            /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
+            Database.insert(review, AccessLevel.SYSTEM_MODE);
+        } else {
+            DocGenFlsGuard.guestAssertUpdateable(review, new Set<String>{ field });
+            /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
+            Database.update(review, AccessLevel.SYSTEM_MODE);
+        }
     }
 
     /**
