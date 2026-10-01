@@ -3,6 +3,8 @@ import { NavigationMixin } from 'lightning/navigation';
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import getSignerRolePicklistValues from '@salesforce/apex/DocGenSignatureSenderController.getSignerRolePicklistValues';
 import createGuidedPdfSignatureRequest from '@salesforce/apex/DocGenSignatureSenderController.createGuidedPdfSignatureRequest';
+import createGuidedPdfSignatureRequestWithAttachments from '@salesforce/apex/DocGenSignatureSenderController.createGuidedPdfSignatureRequestWithAttachments';
+import getAttachableRecordPdfs from '@salesforce/apex/DocGenSignatureSenderController.getAttachableRecordPdfs';
 import markSignerVerifiedInPerson from '@salesforce/apex/DocGenSignatureSenderController.markSignerVerifiedInPerson';
 import createPacketSignerRequest from '@salesforce/apex/DocGenSignatureSenderController.createPacketSignerRequestWithTitle';
 import getContactInfo from '@salesforce/apex/DocGenSignatureSenderController.getContactInfo';
@@ -56,6 +58,12 @@ export default class DocGenSignatureSender extends NavigationMixin(LightningElem
     @track previewLoading = false;
     @track previewStatus = '';
 
+    // #412 — existing PDFs on the record (e.g. engineering drawings) shown to signers
+    // alongside the template. Single-template sends only.
+    @track attachablePdfs = [];
+    @track selectedAttachmentIds = [];
+    @track attachmentPosition = 'Before';
+
     // Previous requests
     @track previousRequests = [];
     @track showPreviousRequests = false;
@@ -96,6 +104,19 @@ export default class DocGenSignatureSender extends NavigationMixin(LightningElem
             if (this.signers.length === 0) {
                 this.handleAddSigner();
             }
+        }
+    }
+
+    connectedCallback() {
+        this.loadAttachablePdfs();
+    }
+
+    async loadAttachablePdfs() {
+        if (!this.recordId) return;
+        try {
+            this.attachablePdfs = (await getAttachableRecordPdfs({ recordId: this.recordId })) || [];
+        } catch (_err) {
+            this.attachablePdfs = []; // the picker simply doesn't show
         }
     }
 
@@ -197,6 +218,65 @@ export default class DocGenSignatureSender extends NavigationMixin(LightningElem
             { label: 'All at once (parallel)', value: 'Parallel' },
             { label: 'One at a time (sequential)', value: 'Sequential' }
         ];
+    }
+
+    // --- #412 attached documents ---
+
+    get attachmentOptions() {
+        return this.attachablePdfs
+            .filter((f) => !f.tooLarge)
+            .map((f) => ({
+                label: [f.title, f.versionNumber ? 'v' + f.versionNumber : null, this._formatBytes(f.size)]
+                    .filter(Boolean)
+                    .join(' · '),
+                value: f.contentDocumentId
+            }));
+    }
+
+    get showAttachmentPicker() {
+        return this.isSingleTemplate && this.attachablePdfs.length > 0;
+    }
+
+    get oversizeAttachmentNote() {
+        const n = this.attachablePdfs.filter((f) => f.tooLarge).length;
+        if (!n) return null;
+        return n === 1
+            ? '1 PDF on this record is over 20 MB and cannot be attached.'
+            : n + ' PDFs on this record are over 20 MB and cannot be attached.';
+    }
+
+    get hasSelectedAttachments() {
+        return this.selectedAttachmentIds.length > 0;
+    }
+
+    get selectAllAttachmentsLabel() {
+        return this.selectedAttachmentIds.length === this.attachmentOptions.length ? 'Clear all' : 'Select all';
+    }
+
+    get attachmentPositionOptions() {
+        return [
+            { label: 'Before the template', value: 'Before' },
+            { label: 'After the template', value: 'After' }
+        ];
+    }
+
+    handleAttachmentsChange(event) {
+        this.selectedAttachmentIds = [...event.detail.value];
+    }
+
+    handleToggleAllAttachments() {
+        const all = this.attachmentOptions.map((o) => o.value);
+        this.selectedAttachmentIds = this.selectedAttachmentIds.length === all.length ? [] : all;
+    }
+
+    handleAttachmentPositionChange(event) {
+        this.attachmentPosition = event.detail.value;
+    }
+
+    _formatBytes(n) {
+        if (!n) return null;
+        if (n < 1024 * 1024) return Math.max(1, Math.round(n / 1024)) + ' KB';
+        return (n / (1024 * 1024)).toFixed(1) + ' MB';
     }
 
     handleSigningOrderChange(event) {
@@ -637,8 +717,7 @@ export default class DocGenSignatureSender extends NavigationMixin(LightningElem
                 // Certificate of Completion. Templates with {@Signature_Role:Order:Type}
                 // tags position chips at those tags; tag-less legacy templates get an
                 // auto-appended "Signatures" block server-side (option b). One path for all.
-                // CxSAST: CSRF protection handled by Salesforce Aura/LWC framework
-                this.signerResults = await createGuidedPdfSignatureRequest({
+                const guidedArgs = {
                     templateId: single.templateId,
                     relatedRecordId: this.recordId,
                     signersJson,
@@ -649,7 +728,16 @@ export default class DocGenSignatureSender extends NavigationMixin(LightningElem
                     requireVerification: this.requireVerificationValue,
                     prefillSignerEmail: this.prefillValue,
                     expirationDays: parseInt(this.expirationDays, 10) || null
-                });
+                };
+                // CxSAST: CSRF protection handled by Salesforce Aura/LWC framework
+                this.signerResults = this.hasSelectedAttachments
+                    ? await createGuidedPdfSignatureRequestWithAttachments({
+                          ...guidedArgs,
+                          sendEmails: null,
+                          attachedDocumentIds: this.selectedAttachmentIds,
+                          attachedDocumentPosition: this.attachmentPosition
+                      })
+                    : await createGuidedPdfSignatureRequest(guidedArgs);
             } else {
                 const templateIds = this.selectedTemplates.map((t) => t.templateId);
                 // CxSAST: CSRF protection handled by Salesforce Aura/LWC framework

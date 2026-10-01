@@ -89,6 +89,50 @@
                 </template>
             </div>
 
+            <!-- #412 Attached documents — existing PDFs on the record, single-template sends only -->
+            <template if:true={showAttachmentPicker}>
+                <div class="slds-var-m-bottom_medium">
+                    <div class="slds-grid slds-grid_vertical-align-center slds-var-m-bottom_xx-small">
+                        <h3 class="slds-col slds-text-heading_small">Attach PDFs from this record (optional)</h3>
+                        <lightning-button
+                            class="slds-col slds-no-flex"
+                            variant="base"
+                            label={selectAllAttachmentsLabel}
+                            onclick={handleToggleAllAttachments}
+                        ></lightning-button>
+                    </div>
+                    <p class="slds-text-body_small slds-text-color_weak slds-var-m-bottom_x-small">
+                        Signers see each one alongside the template and must open every one before they can sign. The
+                        signed copy lists them by version and fingerprint; the files stay on this record.
+                    </p>
+                    <lightning-checkbox-group
+                        name="attachedDocuments"
+                        label="PDFs on this record"
+                        variant="label-hidden"
+                        options={attachmentOptions}
+                        value={selectedAttachmentIds}
+                        onchange={handleAttachmentsChange}
+                    ></lightning-checkbox-group>
+                    <template if:true={oversizeAttachmentNote}>
+                        <p class="slds-text-body_small slds-text-color_weak slds-var-m-top_xx-small">
+                            {oversizeAttachmentNote}
+                        </p>
+                    </template>
+                    <template if:true={hasSelectedAttachments}>
+                        <div class="slds-var-m-top_small">
+                            <lightning-radio-group
+                                name="attachedDocumentPosition"
+                                label="Show the attached PDFs"
+                                type="button"
+                                options={attachmentPositionOptions}
+                                value={attachmentPosition}
+                                onchange={handleAttachmentPositionChange}
+                            ></lightning-radio-group>
+                        </div>
+                    </template>
+                </div>
+            </template>
+
             <!-- Detected Placements Summary -->
             <template if:true={hasDetectedPlacements}>
                 <div class="slds-box slds-theme_shade slds-var-m-bottom_medium" style="border-radius: 6px">
