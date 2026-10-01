@@ -169,6 +169,18 @@ global with sharing class DocGenSignatureFlowAction { // NOPMD AvoidGlobalModifi
             description='Optional. Signing links for this request expire this many days after send (1-365). Leave blank to use the org default from Portwood Settings.'
         )
         global Integer expirationDays;
+
+        @InvocableVariable(
+            label='Attached Documents'
+            description='Optional (#412). File Ids (ContentDocument or ContentVersion) of PDFs on the related record — e.g. engineering drawings — to show signers alongside the template. Each is pinned to its current version; signers must open every one before they can approve, and the signed PDF lists them in an approval register. Requires a template with {@Signature_...} tags or no signature tags at all (not a {#Signatures} loop block). Up to 100 files, 20 MB each.'
+        )
+        global List<String> attachedDocumentIds;
+
+        @InvocableVariable(
+            label='Attached Documents Position'
+            description='Optional (#412). Before (default) shows the attached documents ahead of the template; After shows them after it.'
+        )
+        global String attachedDocumentPosition;
     }
 
     global class Result {
@@ -314,7 +326,7 @@ global with sharing class DocGenSignatureFlowAction { // NOPMD AvoidGlobalModifi
             // so they sign through the same path with zero author change. The classic page
             // is deprecated — one signing path for Flow and LWC alike.
             String signersJson = JSON.serialize(signerInputs);
-            List<DocGenSignatureSenderController.SignerResult> signerResults = DocGenSignatureSenderController.createGuidedPdfSignatureRequest(
+            List<DocGenSignatureSenderController.SignerResult> signerResults = DocGenSignatureSenderController.sendGuidedPdfRequest(
                 req.templateId,
                 req.relatedRecordId,
                 signersJson,
@@ -325,7 +337,9 @@ global with sharing class DocGenSignatureFlowAction { // NOPMD AvoidGlobalModifi
                 req.requireEmailVerification, // #verification — null = inherit template/org
                 req.prefillSignerEmail,
                 req.sendEmails, // #195 — false suppresses Portwood's invites (Flow sends its own)
-                req.expirationDays // null = org-default signing window
+                req.expirationDays, // null = org-default signing window
+                req.attachedDocumentIds, // #412 — existing record PDFs shown alongside the template
+                req.attachedDocumentPosition
             );
 
             // Find the request ID

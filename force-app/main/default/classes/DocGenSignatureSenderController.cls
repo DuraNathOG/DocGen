@@ -1459,6 +1459,144 @@ public with sharing class DocGenSignatureSenderController {
         Boolean sendEmails,
         Integer expirationDays
     ) {
+        return sendGuidedPdfRequest(
+            templateId,
+            relatedRecordId,
+            signersJson,
+            signingOrder,
+            documentTitleFormat,
+            emailMessage,
+            emailSubject,
+            requireVerification,
+            prefillSignerEmail,
+            sendEmails,
+            expirationDays,
+            null,
+            null
+        );
+    }
+
+    /**
+     * #412 — the canonical guided send plus existing PDFs from the related record (e.g. the
+     * engineering drawings on an Issued Drawing). Each file is pinned to its current
+     * ContentVersion and shown to signers as its own document, before or after the template
+     * (attachedDocumentPosition: 'Before' — the default — or 'After'). Signers must open every
+     * attached document before they can approve; the signed PDF records each one in an
+     * approval register. attachedDocumentIds takes ContentDocument or ContentVersion Ids of
+     * PDFs linked to relatedRecordId. Empty/null attachments behave exactly like
+     * createGuidedPdfSignatureRequest.
+     */
+    @AuraEnabled
+    public static List<SignerResult> createGuidedPdfSignatureRequestWithAttachments(
+        Id templateId,
+        String relatedRecordId,
+        String signersJson,
+        String signingOrder,
+        String documentTitleFormat,
+        String emailMessage,
+        String emailSubject,
+        Boolean requireVerification,
+        Boolean prefillSignerEmail,
+        Boolean sendEmails,
+        Integer expirationDays,
+        List<String> attachedDocumentIds,
+        String attachedDocumentPosition
+    ) {
+        try {
+            return sendGuidedPdfRequest(
+                templateId,
+                relatedRecordId,
+                signersJson,
+                signingOrder,
+                documentTitleFormat,
+                emailMessage,
+                emailSubject,
+                requireVerification,
+                prefillSignerEmail,
+                sendEmails,
+                expirationDays,
+                attachedDocumentIds,
+                attachedDocumentPosition
+            );
+        } catch (DocGenException e) {
+            AuraHandledException ae = new AuraHandledException(e.getMessage());
+            ae.setMessage(e.getMessage());
+            throw ae;
+        }
+    }
+
+    /**
+     * #412 — PDFs on a record that can be attached to a signature request, for the sender's
+     * picker. Runs as the sender (USER_MODE): only files they can see are listed. Files over the
+     * per-file cap are returned flagged rather than hidden, so the sender knows why one is
+     * unavailable.
+     */
+    @AuraEnabled
+    public static List<Map<String, Object>> getAttachableRecordPdfs(Id recordId) {
+        List<Map<String, Object>> files = new List<Map<String, Object>>();
+        if (recordId == null) {
+            return files;
+        }
+        Long maxBytes = DocGenSignatureAttachments.maxBytesPerFile();
+        for (ContentDocumentLink link : [
+            SELECT
+                ContentDocumentId,
+                ContentDocument.Title,
+                ContentDocument.FileExtension,
+                ContentDocument.ContentSize,
+                ContentDocument.LatestPublishedVersionId,
+                ContentDocument.LatestPublishedVersion.VersionNumber,
+                ContentDocument.ContentModifiedDate
+            FROM ContentDocumentLink
+            WHERE LinkedEntityId = :recordId AND ContentDocument.FileExtension = 'pdf'
+            WITH USER_MODE
+            ORDER BY ContentDocument.Title ASC
+            LIMIT 500
+        ]) {
+            Long size = link.ContentDocument.ContentSize == null ? 0 : link.ContentDocument.ContentSize;
+            files.add(
+                new Map<String, Object>{
+                    'contentDocumentId' => link.ContentDocumentId,
+                    'contentVersionId' => link.ContentDocument.LatestPublishedVersionId,
+                    'title' => link.ContentDocument.Title,
+                    'versionNumber' => link.ContentDocument.LatestPublishedVersion?.VersionNumber,
+                    'size' => size,
+                    'modifiedDate' => link.ContentDocument.ContentModifiedDate,
+                    'tooLarge' => size > maxBytes
+                }
+            );
+        }
+        return files;
+    }
+
+    /**
+     * The guided send itself, shared by the LWC entries above and the Flow action. Attachment
+     * validation failures throw DocGenException, which a Flow action can catch and report
+     * (an AuraHandledException raised outside an Aura/VF request is uncatchable).
+     */
+    public static List<SignerResult> sendGuidedPdfRequest(
+        Id templateId,
+        String relatedRecordId,
+        String signersJson,
+        String signingOrder,
+        String documentTitleFormat,
+        String emailMessage,
+        String emailSubject,
+        Boolean requireVerification,
+        Boolean prefillSignerEmail,
+        Boolean sendEmails,
+        Integer expirationDays,
+        List<String> attachedDocumentIds,
+        String attachedDocumentPosition
+    ) {
+        // #412: validate and pin attached documents first — before the merge and any DML — so a
+        // bad selection fails fast and nothing is created.
+        List<DocGenSignatureAttachments.AttachmentSpec> attachments = DocGenSignatureAttachments.resolveForSend(
+            relatedRecordId,
+            attachedDocumentIds,
+            attachedDocumentPosition
+        );
+
         List<DocGen_Template__c> tpls = [
             SELECT Id, Name, Document_Title_Format__c
             FROM DocGen_Template__c
@@ -1517,6 +1655,12 @@ public with sharing class DocGenSignatureSenderController {
                 String.isNotBlank(shape[0].Base_Object_API__c) &&
                 String.isNotBlank(shape[0].Query_Config__c)
             ) {
+                if (!attachments.isEmpty()) {
+                    throw new DocGenException(
+                        'This template signs through a {#Signatures} loop block, which cannot carry attached ' +
+                        'documents. Add {@Signature_...} tags to the template to attach documents.'
+                    );
+                }
                 return createTemplateSnapshotRequest(
                     templateId,
                     relatedRecordId,
@@ -1665,6 +1809,9 @@ public with sharing class DocGenSignatureSenderController {
             requireVerification,
             prefillSignerEmail
         );
+
+        // #412: attached documents + one review row per signer (same transaction as the send).
+        DocGenSignatureAttachments.createForRequest(req.Id, attachments);
 
         // Map placements → signers by role (fallback: first signer), Tag_Text__c = sentinel.
         DocGenFlsGuard.assertAccessible(
