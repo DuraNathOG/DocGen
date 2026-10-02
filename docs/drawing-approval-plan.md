@@ -273,7 +273,9 @@ Goal: replace estimates with measurements and de-risk real drawings.
 
 **Measured on the dev box** (desktop Chrome, guest Site, files from §5.2): REST fetch of 13.6 MB took 2.6 s. Norwich (16.6 MB, 5 pp) was fetched, hashed and had page 1 drawn and recorded in 4.6 s. A 0.95 MB Gresham sheet took under 3 s. These are upper bounds: the test tab was hidden, so Chrome throttled its timers.
 
-**Known gaps:** a namespaced-org check (Flow input visibility, `/services/apexrest/portwoodglobal/…` path); a real-phone pass on the attachment pane; the Decline-hidden warning; manual reordering in the picker. Visible-region rendering at deep zoom belongs in #424.
+**Real phones (2026-10-02):** Pixel 10 (Chrome) and iPhone (Safari) both render, pan and pinch-zoom the drawings, after a fix for a phone-only layout bug: the drawing box collapsed to 0 px once the PDF.js viewer went in.
+
+**Known gaps:** a namespaced-org check (Flow input visibility, `/services/apexrest/portwoodglobal/…` path); the Decline-hidden warning; manual reordering in the picker. Visible-region rendering at deep zoom belongs in #424.
 
 ## 7. Guardrails so M1 doesn't box in M2 (markup / redline)
 
