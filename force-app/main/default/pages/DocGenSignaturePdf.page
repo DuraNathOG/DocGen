@@ -689,8 +689,33 @@
                     color: #8a8c8e;
                 }
                 .zoom-label {
-                    min-width: 3.25rem;
+                    min-width: 3.75rem;
+                    font-size: 0.8125rem;
                     text-align: center;
+                }
+                .attachment-hint {
+                    color: #c9c7c5;
+                    font-size: 0.75rem;
+                    white-space: nowrap;
+                }
+                /* DocGenAttachmentViewer: PDF.js's viewer scrolls an absolutely positioned box. */
+                .pdf-viewer.attachment-viewer {
+                    overflow: hidden;
+                }
+                .dg-att-scroller {
+                    position: absolute;
+                    inset: 0;
+                    overflow: auto;
+                    cursor: grab;
+                    /* One finger pans natively; two-finger pinch is handled as drawing zoom. */
+                    touch-action: pan-x pan-y;
+                }
+                .dg-att-scroller.dg-grabbing {
+                    cursor: grabbing;
+                    user-select: none;
+                }
+                .dg-att-scroller .pdfViewer {
+                    padding: 8px 0;
                 }
                 .attachment-viewer .attachment-message {
                     color: #fff;
@@ -746,6 +771,9 @@
                     .pdf-viewer.attachment-viewer {
                         height: 70vh;
                         min-height: 0;
+                    }
+                    .attachment-hint {
+                        display: none;
                     }
                     .pdf-action-bar {
                         padding: 0.75rem 1rem;
@@ -848,14 +876,22 @@
                             <div class="spinner-container"><div class="spinner"></div></div>
                         </div>
 
-                        <!-- #412 DocGenPdfViewer.renderDocument() shows one attached document here. -->
+                        <!-- #412 DocGenAttachmentViewer.render() shows one attached document here. -->
                         <div id="attachment-pane" class="attachment-pane" style="display: none">
                             <div class="attachment-toolbar">
                                 <span id="attachment-meta" class="attachment-meta"></span>
                                 <button id="att-zoom-out" class="btn btn-icon" type="button" aria-label="Zoom out">
                                     &#8722;
                                 </button>
-                                <span id="att-zoom-label" class="zoom-label">Fit</span>
+                                <span class="attachment-hint">Drag to move · Ctrl + scroll or pinch to zoom</span>
+                                <button
+                                    id="att-zoom-fit"
+                                    class="btn btn-icon zoom-label"
+                                    type="button"
+                                    aria-label="Zoom to fit the width"
+                                >
+                                    Fit
+                                </button>
                                 <button id="att-zoom-in" class="btn btn-icon" type="button" aria-label="Zoom in">
                                     +
                                 </button>
@@ -1081,28 +1117,16 @@
                     // on a phone doesn't reliably deliver the events above, and without this a
                     // page scrolled into view stayed soft until the signer re-zoomed.
                     var ZOOM_WATCH_MS = 400;
-                    // #412 — an attached document (e.g. an engineering drawing) is shown one at a
-                    // time, alongside the live signing document, from its own pixel budget.
-                    var ATTACHMENT_PIXEL_BUDGET = 32000000;
-                    var ATTACHMENT_ZOOM_LEVELS = [1, 1.5, 2, 3, 4];
 
                     var pdfjsLib = null; // resolved ESM module (cached after first import)
                     // { pageNum, viewport, textContent, wrapEl, pdfPage, canvas, ratio, task, pendingRatio }
-                    // The signing document only: anchors, chips and hitToPdfRect read these.
                     var pages = [];
                     var ready = false;
                     var docPageCount = 1;
-                    // #412 — the attached document on show. Same entry shape plus docPages/budget;
-                    // never consulted for anchors or stamping, only for the zoom refresh.
-                    var extra = [];
-                    var extraPdf = null;
-                    var extraGen = 0; // bumps on every load/release so a superseded render stops
-                    var extraZoom = 1;
-                    var extraRenderTask = null; // first render of an attached page, in flight
                     var zoomTimer = null;
                     var zoomListening = false;
                     var zoomWatch = null; // interval id while pinch-zoomed
-                    var scrollEls = []; // viewer boxes whose scroll position brings pages into view
+                    var viewerEl = null;
                     var lastViewKey = '';
                     var lastMovedAt = 0;
                     var refreshedViewKey = ''; // view the last refresh evaluated
@@ -1159,10 +1183,10 @@
 
                     // Backing-store pixels per CSS pixel for one page canvas (#413). Never
                     // below 1, so a page that hits a cap is no worse than before.
-                    function backingRatio(viewport, numPages, budget) {
+                    function backingRatio(viewport, numPages) {
                         var ratio = Math.min(MAX_DEVICE_RATIO, window.devicePixelRatio || 1);
                         var cssPixels = viewport.width * viewport.height;
-                        var perPage = Math.min(MAX_CANVAS_PIXELS, (budget || DOC_PIXEL_BUDGET) / Math.max(1, numPages));
+                        var perPage = Math.min(MAX_CANVAS_PIXELS, DOC_PIXEL_BUDGET / Math.max(1, numPages));
                         if (cssPixels * ratio * ratio > perPage) {
                             ratio = Math.sqrt(perPage / cssPixels);
                         }
@@ -1240,19 +1264,17 @@
 
                     function refreshResolution() {
                         zoomTimer = null;
-                        var all = (ready ? pages : []).concat(extra);
-                        if (!all.length) {
+                        if (!ready || !pages.length) {
                             return;
                         }
                         refreshedViewKey = viewKey();
                         var zoom = pinchZoom();
                         var dpr = window.devicePixelRatio || 1;
-                        // A hidden viewer box measures 0×0, so its pages count as out of view.
-                        var visible = all.filter(inView);
+                        var visible = pages.filter(inView);
                         var allowance = Math.min(MAX_CANVAS_PIXELS, ZOOM_PIXEL_BUDGET / Math.max(1, visible.length));
-                        for (var i = 0; i < all.length; i++) {
-                            var entry = all[i];
-                            var base = backingRatio(entry.viewport, entry.docPages || docPageCount, entry.budget);
+                        for (var i = 0; i < pages.length; i++) {
+                            var entry = pages[i];
+                            var base = backingRatio(entry.viewport, docPageCount);
                             var target = entry.ratio;
                             if (visible.indexOf(entry) >= 0) {
                                 target = zoomedRatio(entry.viewport, base, dpr, zoom, allowance);
@@ -1282,14 +1304,10 @@
                     // Where the signer is looking: scroll positions plus the pinch viewport.
                     function viewKey() {
                         var vv = window.visualViewport;
-                        var boxes = [];
-                        for (var i = 0; i < scrollEls.length; i++) {
-                            boxes.push(scrollEls[i].scrollLeft + ':' + scrollEls[i].scrollTop);
-                        }
                         return [
                             window.scrollX,
                             window.scrollY,
-                            boxes.join('/'),
+                            viewerEl ? viewerEl.scrollTop : 0,
                             vv ? vv.offsetLeft : 0,
                             vv ? vv.offsetTop : 0,
                             pinchZoom()
@@ -1328,12 +1346,7 @@
                     }
 
                     function listenForZoom(containerEl) {
-                        // On a phone the viewer isn't height-bound, so the document scrolls; on a
-                        // desktop the viewer box does. Either brings different pages into view.
-                        if (scrollEls.indexOf(containerEl) < 0) {
-                            scrollEls.push(containerEl);
-                            containerEl.addEventListener('scroll', scheduleRefresh, { passive: true });
-                        }
+                        viewerEl = containerEl;
                         if (zoomListening) {
                             return;
                         }
@@ -1343,132 +1356,10 @@
                             window.visualViewport.addEventListener('scroll', scheduleRefresh);
                         }
                         window.addEventListener('resize', scheduleRefresh); // browser zoom changes devicePixelRatio
+                        // On a phone the viewer isn't height-bound, so the document scrolls; on a
+                        // desktop the viewer box does. Either brings different pages into view.
                         window.addEventListener('scroll', scheduleRefresh, { passive: true });
-                    }
-
-                    // #412 — drop the attached document's canvases (iOS counts their backing
-                    // stores against a hard memory ceiling) and stop any render in flight.
-                    function dropExtraPages() {
-                        extraGen++;
-                        if (extraRenderTask) {
-                            extraRenderTask.cancel();
-                            extraRenderTask = null;
-                        }
-                        for (var i = 0; i < extra.length; i++) {
-                            if (extra[i].task) {
-                                extra[i].task.cancel();
-                            }
-                            extra[i].canvas.width = 0;
-                            extra[i].canvas.height = 0;
-                        }
-                        extra = [];
-                    }
-
-                    function releaseExtra() {
-                        dropExtraPages();
-                        if (extraPdf) {
-                            try {
-                                extraPdf.destroy();
-                            } catch (e) {
-                                /* already gone */
-                            }
-                            extraPdf = null;
-                        }
-                    }
-
-                    // One page of an attached document: like renderOnePage, at the signer's
-                    // chosen zoom, without a text layer (nothing is anchored to it). The page
-                    // joins the zoom refresh only once drawn, so a pinch mid-load can't cancel
-                    // its first render. Resolves false when a newer load superseded this one.
-                    function renderExtraPage(pdf, pageNum, containerEl, gen, zoom) {
-                        return pdf.getPage(pageNum).then(function (page) {
-                            if (gen !== extraGen) {
-                                return false;
-                            }
-                            var viewport = page.getViewport({ scale: fitScale(page, containerEl) * zoom });
-                            var ratio = backingRatio(viewport, pdf.numPages, ATTACHMENT_PIXEL_BUDGET);
-                            var renderViewport = page.getViewport({ scale: viewport.scale * ratio });
-                            var wrap = document.createElement('div');
-                            wrap.className = 'dg-page-wrap';
-                            wrap.style.width = viewport.width + 'px';
-                            wrap.style.height = viewport.height + 'px';
-                            var canvas = document.createElement('canvas');
-                            canvas.width = Math.floor(renderViewport.width);
-                            canvas.height = Math.floor(renderViewport.height);
-                            canvas.style.width = viewport.width + 'px';
-                            canvas.style.height = viewport.height + 'px';
-                            wrap.appendChild(canvas);
-                            containerEl.appendChild(wrap);
-                            var task = page.render({
-                                canvasContext: canvas.getContext('2d'),
-                                viewport: renderViewport
-                            });
-                            extraRenderTask = task;
-                            return task.promise.then(
-                                function () {
-                                    if (extraRenderTask === task) {
-                                        extraRenderTask = null;
-                                    }
-                                    if (gen !== extraGen) {
-                                        canvas.width = 0;
-                                        canvas.height = 0;
-                                        return false;
-                                    }
-                                    extra.push({
-                                        pageNum: pageNum,
-                                        viewport: viewport,
-                                        textContent: null,
-                                        wrapEl: wrap,
-                                        pdfPage: page,
-                                        canvas: canvas,
-                                        ratio: ratio,
-                                        task: null,
-                                        pendingRatio: ratio,
-                                        docPages: pdf.numPages,
-                                        budget: ATTACHMENT_PIXEL_BUDGET
-                                    });
-                                    return true;
-                                },
-                                function () {
-                                    if (extraRenderTask === task) {
-                                        extraRenderTask = null;
-                                    }
-                                    canvas.width = 0;
-                                    canvas.height = 0;
-                                    return false;
-                                }
-                            );
-                        });
-                    }
-
-                    function renderExtraPages(containerEl, gen, onFirstPage) {
-                        var pdf = extraPdf;
-                        var chain = Promise.resolve(true);
-                        for (var p = 1; p <= pdf.numPages; p++) {
-                            (function (pageNum) {
-                                chain = chain.then(function (keepGoing) {
-                                    if (!keepGoing || gen !== extraGen) {
-                                        return false;
-                                    }
-                                    return renderExtraPage(pdf, pageNum, containerEl, gen, extraZoom).then(
-                                        function (drawn) {
-                                            if (drawn && pageNum === 1 && onFirstPage) {
-                                                onFirstPage(pdf.numPages);
-                                            }
-                                            return drawn;
-                                        }
-                                    );
-                                });
-                            })(p);
-                        }
-                        return chain.then(function (completed) {
-                            var done = completed === true && gen === extraGen;
-                            if (done) {
-                                listenForZoom(containerEl);
-                                scheduleRefresh();
-                            }
-                            return { pageCount: pdf.numPages, completed: done };
-                        });
+                        containerEl.addEventListener('scroll', scheduleRefresh, { passive: true });
                     }
 
                     function renderOnePage(pdf, pageNum, containerEl) {
@@ -1652,73 +1543,6 @@
                             return ready;
                         },
 
-                        // #412 — show an attached document (raw PDF bytes) in its own viewer
-                        // box, replacing whichever attached document was on show. Kept apart
-                        // from the signing document: never searched for anchors, never stamped.
-                        // onFirstPage(pageCount) fires once page 1 is on screen. Resolves
-                        // { pageCount, completed } — completed=false when superseded.
-                        renderDocument: function (bytes, containerEl, onFirstPage) {
-                            releaseExtra();
-                            extraZoom = 1;
-                            var gen = extraGen;
-                            // PDF.js transfers the buffer to its worker; hand it a copy so the
-                            // caller's bytes stay usable (re-showing, hashing).
-                            var data = bytes.slice ? bytes.slice(0) : bytes;
-                            return ensurePdfjs(containerEl)
-                                .then(function (lib) {
-                                    return lib.getDocument({ data: data, isEvalSupported: false }).promise;
-                                })
-                                .then(function (pdf) {
-                                    if (gen !== extraGen) {
-                                        pdf.destroy();
-                                        return { pageCount: 0, completed: false };
-                                    }
-                                    extraPdf = pdf;
-                                    clearContainer(containerEl);
-                                    return renderExtraPages(containerEl, gen, onFirstPage);
-                                });
-                        },
-
-                        // Re-render the attached document on show at one of zoomLevels
-                        // (1 = fit width), keeping the same spot in view. Document-only zoom:
-                        // the viewer box scrolls, the page chrome stays put.
-                        setDocumentZoom: function (containerEl, level) {
-                            if (!extraPdf || level === extraZoom) {
-                                return Promise.resolve(null);
-                            }
-                            var w = Math.max(1, containerEl.scrollWidth);
-                            var h = Math.max(1, containerEl.scrollHeight);
-                            var cx = (containerEl.scrollLeft + containerEl.clientWidth / 2) / w;
-                            var cy = (containerEl.scrollTop + containerEl.clientHeight / 2) / h;
-                            dropExtraPages();
-                            var gen = extraGen;
-                            extraZoom = level;
-                            clearContainer(containerEl);
-                            function recentre() {
-                                containerEl.scrollLeft = cx * containerEl.scrollWidth - containerEl.clientWidth / 2;
-                                containerEl.scrollTop = cy * containerEl.scrollHeight - containerEl.clientHeight / 2;
-                            }
-                            return renderExtraPages(containerEl, gen, recentre).then(function (r) {
-                                if (r.completed && r.pageCount > 1) {
-                                    recentre(); // later pages changed the scroll height
-                                }
-                                return r;
-                            });
-                        },
-
-                        releaseDocument: function (containerEl) {
-                            releaseExtra();
-                            if (containerEl) {
-                                clearContainer(containerEl);
-                            }
-                        },
-
-                        documentZoom: function () {
-                            return extraZoom;
-                        },
-
-                        zoomLevels: ATTACHMENT_ZOOM_LEVELS,
-
                         // Find EVERY occurrence of each needle across all pages, tolerating
                         // a match split across text runs. Occurrences are returned in
                         // document order so callers can map duplicate needles to records.
@@ -1820,6 +1644,383 @@
                             }
                             return null;
                         }
+                    };
+                })();
+            </script>
+
+            <script>
+                var DocGenAttachmentViewer = (function () {
+                    // ============================================================
+                    // #412 — viewer for ATTACHED documents (e.g. engineering drawings).
+                    // Built on PDF.js's own viewer component (pdf_viewer.js — the building
+                    // blocks of Firefox's PDF viewer), over the same core build the signing
+                    // document uses. The component renders only the pages in view, keeps a
+                    // bounded cache of page canvases, draws at device resolution, and zooms
+                    // around a point with a quick CSS-scaled preview and a sharp redraw once
+                    // the gesture settles. It is also what M2 markup builds on (its annotation
+                    // editors). This module adds the input PDF.js leaves to the app: mouse
+                    // drag-to-pan, Ctrl/⌘+wheel and trackpad pinch, and two-finger pinch on
+                    // touch screens — all scoped to the drawing box, so the page around it
+                    // (and its action bar) never zooms.
+                    //
+                    // The signing document stays on DocGenPdfViewer: its sign-spot anchors and
+                    // stamping are tied to that renderer's coordinates.
+                    // ============================================================
+                    var CORE_URL = "{!URLFOR($Resource.pdfjs4, 'pdf.min.js')}";
+                    var WORKER_URL = "{!URLFOR($Resource.pdfjs4, 'pdf.worker.min.js')}";
+                    var VIEWER_URL = "{!URLFOR($Resource.pdfjs4, 'pdf_viewer.js')}";
+                    var VIEWER_CSS = "{!URLFOR($Resource.pdfjs4, 'pdf_viewer.css')}";
+                    var MAX_CANVAS_PIXELS = 16777216; // iOS Safari refuses a larger canvas
+                    var ZOOM_DELAY_MS = 400; // CSS-scaled preview while zooming; sharp redraw once still
+                    var BUTTON_FACTOR = 1.5; // one +/− click (drawings span a wide zoom range)
+                    var WHEEL_STEP = 1.25; // one Ctrl+wheel notch
+                    var MIN_FIT_FRACTION = 0.5; // never zoom out past half of fit-to-width
+
+                    var libs = null;
+                    var current = null; // the document on show; see render()
+                    var gen = 0; // bumps on every render/release so a superseded load stops
+                    var resizeWired = false;
+
+                    function loadLibs() {
+                        if (libs) {
+                            return Promise.resolve(libs);
+                        }
+                        if (!document.getElementById('dg-pdfjs-viewer-css')) {
+                            var link = document.createElement('link');
+                            link.id = 'dg-pdfjs-viewer-css';
+                            link.rel = 'stylesheet';
+                            link.href = VIEWER_CSS;
+                            document.head.appendChild(link);
+                        }
+                        return import(CORE_URL).then(function (core) {
+                            core.GlobalWorkerOptions.workerSrc = WORKER_URL;
+                            // The viewer component reads the core library from this global.
+                            globalThis.pdfjsLib = core;
+                            return import(VIEWER_URL).then(function (viewer) {
+                                libs = { core: core, viewer: viewer };
+                                return libs;
+                            });
+                        });
+                    }
+
+                    function clear(el) {
+                        while (el.firstChild) {
+                            el.removeChild(el.firstChild);
+                        }
+                    }
+
+                    function release(containerEl) {
+                        gen++;
+                        if (current) {
+                            try {
+                                current.viewer.setDocument(null);
+                            } catch (e) {
+                                /* already torn down */
+                            }
+                            try {
+                                current.pdf.destroy();
+                            } catch (e) {
+                                /* already gone */
+                            }
+                            current = null;
+                        }
+                        if (containerEl) {
+                            clear(containerEl);
+                        }
+                    }
+
+                    function notify(st) {
+                        if (st === current && st.onChange) {
+                            st.onChange(state());
+                        }
+                    }
+
+                    // Zoom by a factor around a point (client coordinates). PDF.js rounds the
+                    // scale to two decimals, so small trackpad/pinch deltas are accumulated
+                    // until they add up to a visible step (as Firefox's viewer does).
+                    function zoomBy(st, factor, originX, originY) {
+                        if (!st.fitScale) {
+                            return;
+                        }
+                        st.pending *= factor;
+                        var scale = st.viewer.currentScale;
+                        var target = Math.round(scale * st.pending * 100) / 100;
+                        var floor = Math.round(st.fitScale * MIN_FIT_FRACTION * 100) / 100;
+                        if (target < floor) {
+                            st.pending = floor / scale;
+                            target = floor;
+                        }
+                        if (target === Math.round(scale * 100) / 100) {
+                            return; // not a visible step yet: keep accumulating
+                        }
+                        // PDF.js measures the origin from the scroll box's offsetLeft/offsetTop
+                        // (right for Firefox's full-window viewer); our box sits inside a
+                        // positioned pane, so convert client coordinates to that frame.
+                        var box = st.scroller.getBoundingClientRect();
+                        st.viewer.updateScale({
+                            scaleFactor: st.pending,
+                            origin: [
+                                originX - box.left + st.scroller.offsetLeft,
+                                originY - box.top + st.scroller.offsetTop
+                            ],
+                            drawingDelay: ZOOM_DELAY_MS
+                        });
+                        st.pending = 1;
+                    }
+
+                    function boxCentre(st) {
+                        var r = st.scroller.getBoundingClientRect();
+                        return [r.left + r.width / 2, r.top + r.height / 2];
+                    }
+
+                    function wireInput(st) {
+                        var scroller = st.scroller;
+
+                        // Ctrl/⌘ + wheel, and trackpad pinch (browsers report it as ctrl+wheel):
+                        // zoom the drawing around the pointer instead of the whole page. A plain
+                        // wheel still scrolls, so multi-page sets page through as usual.
+                        scroller.addEventListener(
+                            'wheel',
+                            function (e) {
+                                if (!(e.ctrlKey || e.metaKey)) {
+                                    return;
+                                }
+                                e.preventDefault();
+                                // Trackpad pinch arrives as a stream of tiny pixel deltas: zoom
+                                // continuously. A mouse-wheel notch arrives as one big delta (~100px
+                                // in Chrome): zoom one fixed step, as PDF.js's own viewer does.
+                                var pinch = e.deltaMode === 0 && Math.abs(e.deltaY) < 10;
+                                var factor = pinch
+                                    ? Math.exp(-e.deltaY / 100)
+                                    : e.deltaY < 0
+                                      ? WHEEL_STEP
+                                      : 1 / WHEEL_STEP;
+                                zoomBy(st, factor, e.clientX, e.clientY);
+                            },
+                            { passive: false }
+                        );
+
+                        // Two-finger pinch on a touch screen zooms the drawing, not the page
+                        // (touch-action on the box keeps one-finger panning native).
+                        function spread(t) {
+                            return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+                        }
+                        scroller.addEventListener(
+                            'touchstart',
+                            function (e) {
+                                st.pinch = e.touches.length === 2 ? spread(e.touches) : null;
+                            },
+                            { passive: true }
+                        );
+                        scroller.addEventListener(
+                            'touchmove',
+                            function (e) {
+                                if (!st.pinch || e.touches.length !== 2) {
+                                    return;
+                                }
+                                e.preventDefault();
+                                var d = spread(e.touches);
+                                if (d > 0) {
+                                    zoomBy(
+                                        st,
+                                        d / st.pinch,
+                                        (e.touches[0].clientX + e.touches[1].clientX) / 2,
+                                        (e.touches[0].clientY + e.touches[1].clientY) / 2
+                                    );
+                                    st.pinch = d;
+                                }
+                            },
+                            { passive: false }
+                        );
+                        scroller.addEventListener('touchend', function (e) {
+                            if (e.touches.length < 2) {
+                                st.pinch = null;
+                            }
+                        });
+
+                        // Mouse drag-to-pan (the hand tool). Touch already pans natively.
+                        scroller.addEventListener('pointerdown', function (e) {
+                            if (e.pointerType !== 'mouse' || e.button !== 0) {
+                                return;
+                            }
+                            if (e.target.closest && e.target.closest('a, button, input, select, textarea')) {
+                                return;
+                            }
+                            st.drag = {
+                                id: e.pointerId,
+                                x: e.clientX,
+                                y: e.clientY,
+                                left: scroller.scrollLeft,
+                                top: scroller.scrollTop
+                            };
+                            scroller.setPointerCapture(e.pointerId);
+                            scroller.classList.add('dg-grabbing');
+                            e.preventDefault(); // no image drag, no text selection
+                        });
+                        scroller.addEventListener('pointermove', function (e) {
+                            if (!st.drag || e.pointerId !== st.drag.id) {
+                                return;
+                            }
+                            scroller.scrollLeft = st.drag.left - (e.clientX - st.drag.x);
+                            scroller.scrollTop = st.drag.top - (e.clientY - st.drag.y);
+                        });
+                        function endDrag() {
+                            st.drag = null;
+                            scroller.classList.remove('dg-grabbing');
+                        }
+                        scroller.addEventListener('pointerup', endDrag);
+                        scroller.addEventListener('pointercancel', endDrag);
+                        scroller.addEventListener('lostpointercapture', endDrag);
+                    }
+
+                    // Fit-to-width follows the box when the window resizes or rotates.
+                    function wireResize() {
+                        if (resizeWired) {
+                            return;
+                        }
+                        resizeWired = true;
+                        var timer = null;
+                        window.addEventListener('resize', function () {
+                            clearTimeout(timer);
+                            timer = setTimeout(function () {
+                                if (current && current.fitMode) {
+                                    current.viewer.currentScaleValue = 'page-width';
+                                }
+                            }, 200);
+                        });
+                    }
+
+                    function state() {
+                        var st = current;
+                        if (!st || !st.fitScale) {
+                            return { ready: false };
+                        }
+                        var scale = st.viewer.currentScale;
+                        return {
+                            ready: true,
+                            fit: st.fitMode,
+                            percent: Math.round((scale / st.fitScale) * 100),
+                            canZoomIn: scale < 9.99,
+                            canZoomOut: scale > st.fitScale * MIN_FIT_FRACTION + 0.005
+                        };
+                    }
+
+                    return {
+                        // Show raw PDF bytes in containerEl, replacing whatever was on show.
+                        // onFirstPage(pageCount) fires once the first page is on screen;
+                        // onChange(state) fires whenever the zoom changes. Resolves
+                        // { pageCount, completed } — completed=false when superseded.
+                        render: function (bytes, containerEl, onFirstPage, onChange) {
+                            release(containerEl);
+                            var myGen = gen;
+                            // PDF.js transfers the buffer to its worker; hand it a copy so the
+                            // caller's bytes stay usable (re-showing, hashing).
+                            var data = bytes.slice ? bytes.slice(0) : bytes;
+                            return loadLibs().then(function (l) {
+                                return l.core
+                                    .getDocument({ data: data, isEvalSupported: false })
+                                    .promise.then(function (pdf) {
+                                        if (myGen !== gen) {
+                                            pdf.destroy();
+                                            return { pageCount: 0, completed: false };
+                                        }
+                                        clear(containerEl);
+                                        var scroller = document.createElement('div');
+                                        scroller.className = 'dg-att-scroller';
+                                        var inner = document.createElement('div');
+                                        inner.className = 'pdfViewer';
+                                        scroller.appendChild(inner);
+                                        containerEl.appendChild(scroller);
+
+                                        var eventBus = new l.viewer.EventBus();
+                                        var linkService = new l.viewer.PDFLinkService({ eventBus: eventBus });
+                                        // A drawing's links never navigate the signer away.
+                                        linkService.externalLinkEnabled = false;
+                                        var viewer = new l.viewer.PDFViewer({
+                                            container: scroller,
+                                            viewer: inner,
+                                            eventBus: eventBus,
+                                            linkService: linkService,
+                                            textLayerMode: 0, // nothing to select; keeps drag-to-pan unambiguous
+                                            annotationMode: l.core.AnnotationMode.ENABLE, // show existing markups; no forms
+                                            annotationEditorMode: l.core.AnnotationEditorType.DISABLE, // markup is M2
+                                            maxCanvasPixels: MAX_CANVAS_PIXELS
+                                        });
+                                        linkService.setViewer(viewer);
+
+                                        var st = {
+                                            pdf: pdf,
+                                            viewer: viewer,
+                                            scroller: scroller,
+                                            fitScale: null,
+                                            fitMode: true,
+                                            pending: 1,
+                                            pinch: null,
+                                            drag: null,
+                                            onChange: onChange
+                                        };
+                                        current = st;
+                                        wireInput(st);
+                                        wireResize();
+
+                                        return new Promise(function (resolve, reject) {
+                                            var first = true;
+                                            eventBus.on('pagesinit', function () {
+                                                viewer.currentScaleValue = 'page-width';
+                                            });
+                                            eventBus.on('scalechanging', function (e) {
+                                                st.fitMode = e.presetValue === 'page-width';
+                                                if (st.fitMode) {
+                                                    st.fitScale = e.scale;
+                                                }
+                                                notify(st);
+                                            });
+                                            eventBus.on('pagerendered', function (e) {
+                                                if (!first || myGen !== gen) {
+                                                    return;
+                                                }
+                                                first = false;
+                                                if (e.error) {
+                                                    reject(e.error);
+                                                    return;
+                                                }
+                                                if (onFirstPage) {
+                                                    onFirstPage(pdf.numPages);
+                                                }
+                                                resolve({ pageCount: pdf.numPages, completed: true });
+                                            });
+                                            viewer.setDocument(pdf);
+                                            linkService.setDocument(pdf, null);
+                                        });
+                                    });
+                            });
+                        },
+
+                        release: release,
+
+                        zoomIn: function () {
+                            if (current) {
+                                var c = boxCentre(current);
+                                zoomBy(current, BUTTON_FACTOR, c[0], c[1]);
+                            }
+                        },
+
+                        zoomOut: function () {
+                            if (current) {
+                                var c = boxCentre(current);
+                                zoomBy(current, 1 / BUTTON_FACTOR, c[0], c[1]);
+                            }
+                        },
+
+                        fit: function () {
+                            if (current) {
+                                current.pending = 1;
+                                current.viewer.currentScaleValue = 'page-width';
+                            }
+                        },
+
+                        // { ready, fit, percent (of fit-to-width), canZoomIn, canZoomOut }
+                        state: state
                     };
                 })();
             </script>
@@ -2273,6 +2474,9 @@
                         document.getElementById('att-zoom-out').addEventListener('click', function () {
                             stepZoom(-1);
                         });
+                        document.getElementById('att-zoom-fit').addEventListener('click', function () {
+                            DocGenAttachmentViewer.fit();
+                        });
                         document.getElementById('doc-nav').style.display = '';
                         document.getElementById('doc-status').style.display = '';
                         syncDocNav();
@@ -2346,7 +2550,7 @@
                         syncDocNav();
                         if (entry === 'form') {
                             attachmentLoadGen++;
-                            DocGenPdfViewer.releaseDocument(attEl);
+                            DocGenAttachmentViewer.release(attEl);
                             pane.style.display = 'none';
                             formEl.style.display = '';
                             return;
@@ -2364,33 +2568,28 @@
                         document.getElementById('attachment-meta').textContent = bits.join(' \u00B7 ');
                     }
 
-                    function syncZoomControls(enabled) {
-                        var levels = DocGenPdfViewer.zoomLevels;
-                        var z = DocGenPdfViewer.documentZoom();
-                        var at = levels.indexOf(z);
-                        document.getElementById('att-zoom-label').textContent =
-                            z === 1 ? 'Fit' : Math.round(z * 100) + '%';
-                        document.getElementById('att-zoom-out').disabled = !enabled || at <= 0;
-                        document.getElementById('att-zoom-in').disabled = !enabled || at >= levels.length - 1;
+                    // Zoom controls mirror the viewer: the label reads the zoom relative to
+                    // fit-to-width and doubles as the "Fit" button.
+                    function syncZoomControls() {
+                        var z = DocGenAttachmentViewer.state();
+                        var label = document.getElementById('att-zoom-fit');
+                        label.textContent = !z.ready || z.fit ? 'Fit' : z.percent + '%';
+                        label.disabled = !z.ready || z.fit;
+                        document.getElementById('att-zoom-out').disabled = !z.ready || !z.canZoomOut;
+                        document.getElementById('att-zoom-in').disabled = !z.ready || !z.canZoomIn;
                     }
 
                     function stepZoom(delta) {
-                        var levels = DocGenPdfViewer.zoomLevels;
-                        var at = levels.indexOf(DocGenPdfViewer.documentZoom()) + delta;
-                        if (at < 0 || at >= levels.length) return;
-                        var gen = attachmentLoadGen;
-                        syncZoomControls(false);
-                        DocGenPdfViewer.setDocumentZoom(
-                            document.getElementById('attachment-viewer-container'),
-                            levels[at]
-                        ).then(function () {
-                            if (gen === attachmentLoadGen) syncZoomControls(true);
-                        });
+                        if (delta > 0) {
+                            DocGenAttachmentViewer.zoomIn();
+                        } else {
+                            DocGenAttachmentViewer.zoomOut();
+                        }
                     }
 
                     function showAttachmentMessage(text, isError, withProgress, retry) {
                         var el = document.getElementById('attachment-viewer-container');
-                        DocGenPdfViewer.releaseDocument(el);
+                        DocGenAttachmentViewer.release(el);
                         var box = document.createElement('div');
                         box.className = 'attachment-message' + (isError ? ' error' : '');
                         var p = document.createElement('p');
@@ -2421,7 +2620,8 @@
                         var gen = ++attachmentLoadGen;
                         var el = document.getElementById('attachment-viewer-container');
                         setAttachmentMeta(a);
-                        syncZoomControls(false);
+                        DocGenAttachmentViewer.release();
+                        syncZoomControls();
                         var bar = showAttachmentMessage(
                             'Loading ' +
                                 (a.title || 'document') +
@@ -2435,14 +2635,19 @@
                         })
                             .then(function (bytes) {
                                 if (gen !== attachmentLoadGen) return null;
-                                return DocGenPdfViewer.renderDocument(bytes, el, function (pageCount) {
-                                    if (gen !== attachmentLoadGen) return;
-                                    setAttachmentMeta(a, pageCount);
-                                    recordAttachmentOpened(a, 0);
-                                });
+                                return DocGenAttachmentViewer.render(
+                                    bytes,
+                                    el,
+                                    function (pageCount) {
+                                        if (gen !== attachmentLoadGen) return;
+                                        setAttachmentMeta(a, pageCount);
+                                        recordAttachmentOpened(a, 0);
+                                    },
+                                    syncZoomControls
+                                );
                             })
-                            .then(function (r) {
-                                if (r && r.completed && gen === attachmentLoadGen) syncZoomControls(true);
+                            .then(function () {
+                                if (gen === attachmentLoadGen) syncZoomControls();
                             })
                             .catch(function (err) {
                                 if (gen !== attachmentLoadGen) return;

@@ -15,9 +15,11 @@
       **Attached Documents Position**. Each file is pinned to its version at send. Limits are
       100 files per request and 20 MB each, PDFs on the related record only, refused for
       `{#Signatures}` loop-only templates. A bad selection is reported, never half-sent.
-    - **Sign.** A document switcher with per-document ticks, one attachment loaded at a time
-      with document-level zoom buttons, and the existing device-resolution and pinch-zoom
-      rendering. Attachments stream as raw bytes from a new token-keyed guest Apex REST
+    - **Sign.** A document switcher with per-document ticks. Attachments show one at a time
+      in PDF.js's own viewer component (added to the `pdfjs4` static resource at the same
+      4.7.76 build). It draws only the pages in view, so a 14-page A1 set opens at the page
+      you jump to. Drag to pan; Ctrl+scroll, trackpad pinch or two-finger pinch zooms the
+      drawing around the pointer, not the page; + / − / Fit buttons too. Attachments stream as raw bytes from a new token-keyed guest Apex REST
       endpoint (`signature-attachment`), because drawings run past what Visualforce
       remoting can carry. 16.6 MB sheets load in seconds. The browser checks each download
       against the server's SHA-256.

@@ -196,7 +196,19 @@ Goal: replace estimates with measurements and de-risk real drawings.
 ### Signing page (`DocGenSignaturePdf.page`)
 
 - [x] Multi-document viewer: a document switcher (prev / list / next) with ticks, and a separate attachment pane. Each drawing is fetched on open with a progress bar, SHA-256 checked in the browser against the server's header, and rendered page by page; switching away frees its canvases and PDF.js document. The signing document keeps its own page set, so anchors and stamping are untouched.
-- [x] #413 DPR rendering and pinch-zoom re-render extend to attachment pages. Added document-level zoom buttons (Fit to 400%) that re-render the drawing inside a height-bound box, so the chrome stays put. _Visible-region rendering at deep zoom is not done; each page stays capped at 16.7 MP._
+- [x] **Attachment pane runs on PDF.js's viewer component** (`pdf_viewer.js` from the same `pdfjs-dist@4.7.76` legacy build; added 2026-10-02). It replaces a hand-rolled renderer, and gives:
+    - lazy rendering of the pages in view, with a bounded canvas cache;
+    - device-resolution output, capped at 16.7 MP;
+    - `updateScale` zoom around a point, with a CSS preview and then a sharp redraw.
+
+    Portwood adds the input layer PDF.js leaves to the app:
+    - mouse drag-to-pan;
+    - Ctrl/⌘+wheel and trackpad pinch (continuous; wheel notches step 1.25×);
+    - two-finger touch pinch, with `touch-action: pan-x pan-y` so the page itself doesn't zoom;
+    -   - / − / Fit buttons.
+
+    Verified on the dev box: zoom stays anchored under the pointer (≤ 0.1% drift once zoomed); a 14-page A1 set renders only the pages in view; jumping to page 9 draws 9–10 without 3–8. Text layer, forms, scripting, annotation editors and external links are off. The signing document stays on Portwood's own renderer, because its anchors and stamping depend on it. _Visible-region (tiled) rendering at deep zoom is still not available in PDF.js 4.7; pages stay capped at 16.7 MP._
+
 - [x] Loading placeholder with download progress.
 - [x] Approve needs every attachment opened (Q9 yes): enforced in the page and in `saveCompositedSignedPdf`.
 - [x] Register: a separate **Attached Documents** page (paginates, "continued") before the Certificate of Completion. It lists title, version, size, position, SHA-256 and opened-by name and time.
@@ -265,7 +277,7 @@ Goal: replace estimates with measurements and de-risk real drawings.
 
 ## 7. Guardrails so M1 doesn't box in M2 (markup / redline)
 
-1. **pdf-lib only** for flattening markup (M2) — never the regex merger. M2 needs `/Rotate`/`/CropBox` handling and vector drawing. M1 itself does not merge.
+1. **pdf-lib only** for flattening markup (M2) — never the regex merger. M2 needs `/Rotate`/`/CropBox` handling and vector drawing. M1 itself does not merge. _Revisit for M2:_ the attachment pane now runs PDF.js's viewer component, whose annotation editors (ink, free text, highlight, stamp) produce vector PDF annotations and `saveDocument()` writes them into the file. Decide whether M2's marked-up copy keeps them as editable annotations or flattens them with pdf-lib.
 2. **Per-drawing identity is first-class.** M2 marks are keyed to _(attachment, source page)_ in unrotated page space — the D2 viewer already works per drawing.
 3. **One transport both ways.** M2 returns a marked-up copy **per drawing** (up to ~16 MB). Remote actions cap uploads at 2.95 MB; T3 POST measured to 16 MB. Choosing T3 in M1 means M2 adds a POST on the same resource; choosing T2 means M2 still needs an upload design.
 4. **Vector markup, not raster.** Raster overlays at A1/A3 resolution inflate files (the limit #197 hit).
