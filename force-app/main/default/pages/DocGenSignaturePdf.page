@@ -768,7 +768,10 @@
                     .attachment-pane {
                         flex: none;
                     }
+                    /* flex: none, or the inherited flex-basis wins over the height and the box
+                       sizes to its content — which is nothing: PDF.js's scroller is absolute. */
                     .pdf-viewer.attachment-viewer {
+                        flex: none;
                         height: 70vh;
                         min-height: 0;
                     }
