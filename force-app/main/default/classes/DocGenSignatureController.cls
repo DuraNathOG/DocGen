@@ -147,6 +147,11 @@ public without sharing class DocGenSignatureController {
         // server-side at completion). See DocGenFieldWritebackService.publicFormFields.
         @AuraEnabled
         public List<Object> formFields;
+        // #412 — how many existing record PDFs (e.g. drawings) are attached to this request.
+        // The manifest itself (titles, versions) is served by getAttachmentManifest only after
+        // the email PIN check, so nothing about the attachments leaks before verification.
+        @AuraEnabled
+        public Integer attachmentCount;
     }
 
     public class SaveSignatureResult {
@@ -852,7 +857,43 @@ public without sharing class DocGenSignatureController {
             res.formFields = DocGenFieldWritebackService.publicFormFields(parentReq.Template__r.Form_Fields_Config__c);
         }
 
+        res.attachmentCount = DocGenSignatureAttachments.attachmentCount(parentReq.Id);
+
         return res;
+    }
+
+    /**
+     * #412 — the attached documents (e.g. engineering drawings) for this signer's request: index,
+     * title, version, size, position, SHA-256 and when this signer opened each, plus the REST path
+     * the page fetches them from. Token-bound and PIN-gated (DocGenSignatureAttachments
+     * .resolveSigner); never returns a record or file Id.
+     */
+    @AuraEnabled
+    @RemoteAction
+    public static Map<String, Object> getAttachmentManifest(String token) {
+        DocGenSignatureAttachments.GuestResult gate = DocGenSignatureAttachments.resolveSigner(token);
+        if (gate.status != 200) {
+            return new Map<String, Object>{ 'success' => false, 'message' => gate.error };
+        }
+        return new Map<String, Object>{
+            'success' => true,
+            'attachments' => DocGenSignatureAttachments.manifestForSigner(
+                gate.signer.Signature_Request__c,
+                gate.signer.Id
+            ),
+            'endpoint' => DocGenSignatureAttachments.endpointPath()
+        };
+    }
+
+    /**
+     * #412 — records that the signer opened attached document [index]. The page calls this once
+     * the document's first page has rendered; approval is refused until every attached document
+     * has been opened (see saveCompositedSignedPdf).
+     */
+    @AuraEnabled
+    @RemoteAction
+    public static Map<String, Object> markAttachmentViewed(String token, Integer index) {
+        return DocGenSignatureAttachments.markViewed(token, index);
     }
 
     private static SignatureInitResponse validateLegacyRequest(DocGen_Signature_Request__c req) {
@@ -1310,6 +1351,14 @@ public without sharing class DocGenSignatureController {
             return result;
         }
 
+        // #412: requests with attached documents finalize only through the guided composite
+        // (saveCompositedSignedPdf), which renders the approval register.
+        String attachmentError = DocGenSignatureAttachments.fallbackError(signer.Signature_Request__c);
+        if (attachmentError != null) {
+            result.message = attachmentError;
+            return result;
+        }
+
         // Signer form fields: validate + persist the collected values BEFORE the
         // signer is finalized, so a required-field failure aborts the whole save
         // (no status change, nothing persisted) and the guest sees a clean error.
@@ -1569,6 +1618,10 @@ public without sharing class DocGenSignatureController {
         }
 
         DocGen_Signature_Request__c req = requests[0];
+        String attachmentError = DocGenSignatureAttachments.fallbackError(req.Id);
+        if (attachmentError != null) {
+            throw new AuraHandledException(attachmentError);
+        }
 
         try {
             // PDF generation via VF page (stamps signatures internally, no DML before callout)
@@ -2644,6 +2697,14 @@ public without sharing class DocGenSignatureController {
             return result;
         }
 
+        // #412: requests with attached documents finalize only through the guided composite
+        // (saveCompositedSignedPdf), which renders the approval register.
+        String attachmentError = DocGenSignatureAttachments.fallbackError(signer.Signature_Request__c);
+        if (attachmentError != null) {
+            result.message = attachmentError;
+            return result;
+        }
+
         // Signer form fields: validate + persist the collected values BEFORE the
         // signer is finalized, so a required-field failure aborts the whole save
         // (no status change, nothing persisted) and the guest sees a clean error.
@@ -2867,6 +2928,13 @@ public without sharing class DocGenSignatureController {
         String placementError = validateSignerPlacementsComplete(signer.Id);
         if (placementError != null) {
             result.message = placementError;
+            return result;
+        }
+
+        // #412: approval requires the signer to have opened every attached document.
+        String attachmentError = DocGenSignatureAttachments.validateAllViewed(signer.Id, signer.Signature_Request__c);
+        if (attachmentError != null) {
+            result.message = attachmentError;
             return result;
         }
 
@@ -3301,7 +3369,10 @@ public without sharing class DocGenSignatureController {
             // Completion carries the SAME verify link as the typed/server certificate.
             // Null when no Site URL is configured or the request has no token — the
             // cert then omits the link (file-drop verification still works).
-            'verifyUrl' => DocGenSignatureService.buildVerifyUrl(reqId)
+            'verifyUrl' => DocGenSignatureService.buildVerifyUrl(reqId),
+            // #412 — the approval register: each attached document and who opened it when.
+            // Only for a link that passes the attachment gate (PIN, expiry, open request).
+            'attachments' => DocGenSignatureAttachments.registerForToken(token)
         };
     }
 }

@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### Added
+
+- **Attach existing PDFs from the record to a signature request: drawing approval (#412).**
+  A guided signature request can now carry PDFs that already sit on the related record (an
+  issued drawing set, a specification), shown to signers alongside the template instead of
+  being merged into it. The template is the approval form; each attachment is its own
+  document on the signing page.
+    - **Opt-in per template.** A new **Attached Documents** setting on the template:
+      _Off_ (default), _Optional_ or _Required_. Existing templates and senders see no change
+      until a template opts in. The rule is enforced for every entry point: Off refuses
+      attachments, Required refuses a send without any, and a Required template can't go in a
+      packet. Edited in Command Hub → My Templates, and carried by template export/import.
+    - **Send.** For a template that opts in, the Signature Sender lists the record's PDFs
+      with Select all and a Before/After position. The preview lists the ticked files in signing
+      order and opens them in Salesforce's file viewer. Flow gets the same through two new optional
+      inputs on **Portwood: Create Signature Request**: **Attached Documents** (file Ids) and
+      **Attached Documents Position**. Each file is pinned to its version at send. Limits are
+      100 files per request and 20 MB each, PDFs on the related record only, refused for
+      `{#Signatures}` loop-only templates. A bad selection is reported, never half-sent.
+    - **Sign.** A document switcher with per-document ticks. Attachments show one at a time
+      in PDF.js's own viewer component (added to the `pdfjs4` static resource at the same
+      4.7.76 build). It draws only the pages in view, so a 14-page A1 set opens at the page
+      you jump to. Drag to pan; Ctrl+scroll, trackpad pinch or two-finger pinch zooms the
+      drawing around the pointer, not the page; + / − / Fit buttons too. Attachments stream as raw bytes from a new token-keyed guest Apex REST
+      endpoint (`signature-attachment`), because drawings run past what Visualforce
+      remoting can carry. 16.6 MB sheets load in seconds. The browser checks each download
+      against the server's SHA-256.
+    - **Approve gate.** Every attachment must be opened before the signer can finish. This is
+      enforced in the page and in `saveCompositedSignedPdf`; the server re-render fallbacks
+      are refused for requests with attachments. Decline is unaffected.
+    - **Approval register.** The signed PDF gains an **Attached Documents** page before the
+      Certificate of Completion, listing each attachment's version, size, SHA-256 and who
+      opened it when. The attachments themselves stay unchanged on the record.
+    - New objects: `DocGen_Signature_Attachment__c` (the pinned file per request) and
+      `DocGen_Signer_Attachment__c` (each signer's review of each file: opened now, markup
+      later). They appear as related lists on the signature request and signer layouts.
+      Permission sets are updated; the guest set gets no access to the new objects, only
+      class access to the REST endpoint. Orgs on their own permission sets see no change
+      until they use the feature: the Sender reads the new template field through the
+      advisory FLS guard (like `Brand__c`), so its template list never fails on upgrade.
+
 ### Fixed
 
 - **The signing page is sharp on phones and HiDPI screens, and stays sharp when you
