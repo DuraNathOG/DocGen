@@ -2094,6 +2094,8 @@ public without sharing class DocGenSignatureController {
         );
         /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
         Database.update(signer, false, AccessLevel.SYSTEM_MODE);
+        // #412 M2 — the signer's draft markups go with this decline.
+        DocGenSignatureAttachments.submitMarkups(signer.Id);
 
         // Mark parent request as declined. Null out the cached preview HTML — the JSON blob
         // in Signature_Data__c carries the live preview with names already stamped, and
@@ -2980,6 +2982,8 @@ public without sharing class DocGenSignatureController {
             'Finalize composited PDF signer',
             signer.Id
         );
+        // #412 M2 — the signer's draft markups go with this approval.
+        DocGenSignatureAttachments.submitMarkups(signer.Id);
 
         DocGen_Signature_Audit__c audit = new DocGen_Signature_Audit__c();
         audit.Signature_Request__c = signer.Signature_Request__c;

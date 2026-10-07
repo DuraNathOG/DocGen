@@ -1205,6 +1205,19 @@ private class DocGenSignatureAttachmentsTest {
         Assert.isTrue(approved.message.contains('only be sent with a decline'), approved.message);
         Assert.areEqual(true, declined.get('success'), 'The decline goes through with the markup saved');
         Assert.areEqual('Declined', [SELECT Status__c FROM DocGen_Signer__c WHERE Id = :s.Id].Status__c, 'Declined');
+        DocGen_Signer_Attachment__c review = [
+            SELECT Markup_Submitted_At__c, Markup_Content_Version_Id__c
+            FROM DocGen_Signer_Attachment__c
+            WHERE Signer__c = :s.Id AND Markup_Content_Version_Id__c != NULL
+        ];
+        Assert.isNotNull(review.Markup_Submitted_At__c, 'The decline submits the draft markup');
+        String title = [
+            SELECT ContentDocument.Title
+            FROM ContentVersion
+            WHERE Id = :review.Markup_Content_Version_Id__c
+        ]
+        .ContentDocument.Title;
+        Assert.isFalse(title.endsWith('(draft)'), 'A submitted markup is no longer titled a draft: ' + title);
     }
 
     @IsTest
@@ -1223,6 +1236,15 @@ private class DocGenSignatureAttachmentsTest {
         Test.stopTest();
 
         Assert.isTrue(approved.success, 'Approved as noted: ' + approved.message);
+        Assert.isNotNull(
+            [
+                SELECT Markup_Submitted_At__c
+                FROM DocGen_Signer_Attachment__c
+                WHERE Signer__c = :s.Id AND Markup_Content_Version_Id__c != NULL
+            ]
+            .Markup_Submitted_At__c,
+            'The approval submits the draft markup'
+        );
     }
 
     @IsTest
@@ -1264,5 +1286,101 @@ private class DocGenSignatureAttachmentsTest {
         Assert.isNotNull(okBody.get('sha256'), 'The fingerprint is returned');
         Assert.areEqual(400, badStatus, 'No token');
         Assert.isNotNull(badBody.get('error'), 'Error message returned');
+    }
+
+    @IsTest
+    static void markup_draftCanBeWithdrawnAndReloaded_untilSubmitted() {
+        Id tplId = markupTemplate('Approve or decline');
+        send(tplId, oneSigner(), drawingIds(), 'Before', false);
+        DocGen_Signer__c s = signer(tplId);
+
+        Test.startTest();
+        DocGenSignatureAttachments.serve(s.Secure_Token__c, 0);
+        Integer nothingYet = DocGenSignatureAttachments.serveMarkup(s.Secure_Token__c, 0).status;
+        DocGenSignatureAttachments.saveMarkup(s.Secure_Token__c, 0, markedUp('draft one'));
+        DocGenSignatureAttachments.GuestResult reloaded = DocGenSignatureAttachments.serveMarkup(s.Secure_Token__c, 0);
+        Id draftCv = [
+            SELECT Markup_Content_Version_Id__c
+            FROM DocGen_Signer_Attachment__c
+            WHERE Signer__c = :s.Id AND Attachment__r.Sort_Order__c = 0
+        ]
+        .Markup_Content_Version_Id__c;
+        String draftTitle = [SELECT Title FROM ContentVersion WHERE Id = :draftCv].Title;
+        Id draftDoc = [SELECT ContentDocumentId FROM ContentVersion WHERE Id = :draftCv].ContentDocumentId;
+        Integer withdrawn = DocGenSignatureAttachments.withdrawMarkup(s.Secure_Token__c, 0).status;
+        Integer again = DocGenSignatureAttachments.withdrawMarkup(s.Secure_Token__c, 0).status;
+        DocGenSignatureAttachments.saveMarkup(s.Secure_Token__c, 0, markedUp('draft two'));
+        DocGenSignatureAttachments.submitMarkups(s.Id);
+        Integer afterSubmit = DocGenSignatureAttachments.withdrawMarkup(s.Secure_Token__c, 0).status;
+        Integer saveAfterSubmit = DocGenSignatureAttachments.saveMarkup(s.Secure_Token__c, 0, markedUp('three')).status;
+        Test.stopTest();
+
+        Assert.areEqual(404, nothingYet, 'No markup to reload before one is saved');
+        Assert.areEqual(200, reloaded.status, 'The saved draft can be reloaded');
+        Assert.areEqual(markedUp('draft one').toString(), reloaded.bytes.toString(), 'Its exact bytes');
+        Assert.isTrue(draftTitle.endsWith('(draft)'), 'A background save is titled a draft: ' + draftTitle);
+        Assert.areEqual(200, withdrawn, 'A draft can be withdrawn');
+        Assert.areEqual(0, [SELECT COUNT() FROM ContentDocument WHERE Id = :draftDoc], 'Its file is deleted');
+        Assert.areEqual(200, again, 'Withdrawing nothing is a no-op');
+        Assert.areEqual(409, afterSubmit, 'A submitted markup cannot be withdrawn');
+        Assert.areEqual(409, saveAfterSubmit, 'Nor replaced');
+        DocGen_Signer_Attachment__c review = [
+            SELECT Markup_Content_Version_Id__c, Markup_Submitted_At__c
+            FROM DocGen_Signer_Attachment__c
+            WHERE Signer__c = :s.Id AND Attachment__r.Sort_Order__c = 0
+        ];
+        Assert.isNotNull(review.Markup_Submitted_At__c, 'Submitted');
+        Assert.isFalse(
+            [SELECT ContentDocument.Title FROM ContentVersion WHERE Id = :review.Markup_Content_Version_Id__c]
+                .ContentDocument.Title.endsWith('(draft)'),
+            'Submitting drops the draft title'
+        );
+    }
+
+    @IsTest
+    static void rest_getMarkupAndDeleteDraft() {
+        Id tplId = markupTemplate('Decline only');
+        send(tplId, oneSigner(), drawingIds(), 'Before', false);
+        DocGen_Signer__c s = signer(tplId);
+        DocGenSignatureAttachments.serve(s.Secure_Token__c, 0);
+        DocGenSignatureAttachments.saveMarkup(s.Secure_Token__c, 0, markedUp('via REST'));
+
+        Test.startTest();
+        RestRequest get = new RestRequest();
+        get.requestURI = '/services/apexrest/signature-attachment';
+        get.httpMethod = 'GET';
+        get.addParameter('index', '0');
+        get.addParameter('markup', '1');
+        get.addHeader('X-Portwood-Token', s.Secure_Token__c);
+        RestContext.request = get;
+        RestContext.response = new RestResponse();
+        DocGenSignatureAttachmentRest.fetchAttachment();
+        Integer getStatus = RestContext.response.statusCode;
+        String getBody = RestContext.response.responseBody.toString();
+
+        RestRequest del = new RestRequest();
+        del.requestURI = '/services/apexrest/signature-attachment';
+        del.httpMethod = 'DELETE';
+        del.addParameter('index', '0');
+        del.addHeader('X-Portwood-Token', s.Secure_Token__c);
+        RestContext.request = del;
+        RestContext.response = new RestResponse();
+        DocGenSignatureAttachmentRest.withdrawMarkup();
+        Integer delStatus = RestContext.response.statusCode;
+
+        RestRequest badDel = new RestRequest();
+        badDel.requestURI = '/services/apexrest/signature-attachment';
+        badDel.httpMethod = 'DELETE';
+        RestContext.request = badDel;
+        RestContext.response = new RestResponse();
+        DocGenSignatureAttachmentRest.withdrawMarkup();
+        Integer badStatus = RestContext.response.statusCode;
+        Test.stopTest();
+
+        Assert.areEqual(200, getStatus, 'GET ?markup=1 serves the saved markup');
+        Assert.areEqual(markedUp('via REST').toString(), getBody, 'The markup bytes, not the original');
+        Assert.areEqual(200, delStatus, 'DELETE withdraws the draft');
+        Assert.areEqual(0, DocGenSignatureAttachments.markupCount(s.Id), 'Nothing left');
+        Assert.areEqual(400, badStatus, 'No token');
     }
 }

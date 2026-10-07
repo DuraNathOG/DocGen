@@ -37,7 +37,10 @@ global without sharing class DocGenSignatureAttachmentRest { // NOPMD AvoidGloba
 
         DocGenSignatureAttachments.GuestResult result;
         try {
-            result = DocGenSignatureAttachments.serve(header(req, TOKEN_HEADER), indexParam(req));
+            // #412 M2 — ?markup=1 serves the signer's own saved markup instead of the original.
+            result = req.params.get('markup') == '1'
+                ? DocGenSignatureAttachments.serveMarkup(header(req, TOKEN_HEADER), indexParam(req))
+                : DocGenSignatureAttachments.serve(header(req, TOKEN_HEADER), indexParam(req));
         } catch (Exception e) {
             DocGenErrorLogger.log('DocGenSignatureAttachmentRest', e);
             result = new DocGenSignatureAttachments.GuestResult();
@@ -82,6 +85,33 @@ global without sharing class DocGenSignatureAttachmentRest { // NOPMD AvoidGloba
         }
         res.responseBody = Blob.valueOf(
             JSON.serialize(new Map<String, Object>{ 'sha256' => result.sha256, 'title' => result.title })
+        );
+    }
+
+    /** #412 M2 — withdraws the signer's draft markup of document N (they cleared their marks). */
+    @HttpDelete
+    global static void withdrawMarkup() {
+        RestRequest req = RestContext.request;
+        RestResponse res = RestContext.response;
+        res.addHeader('Cache-Control', 'no-store');
+        res.addHeader('X-Content-Type-Options', 'nosniff');
+        res.addHeader('Content-Type', 'application/json');
+        DocGenSignatureAttachments.GuestResult result;
+        try {
+            result = DocGenSignatureAttachments.withdrawMarkup(header(req, TOKEN_HEADER), indexParam(req));
+        } catch (Exception e) {
+            DocGenErrorLogger.log('DocGenSignatureAttachmentRest', e);
+            result = new DocGenSignatureAttachments.GuestResult();
+            result.status = 500;
+            result.error = 'Your markup could not be removed. Please try again.';
+        }
+        res.statusCode = result.status;
+        res.responseBody = Blob.valueOf(
+            JSON.serialize(
+                result.status == 200
+                    ? new Map<String, Object>{ 'success' => true }
+                    : new Map<String, Object>{ 'error' => result.error }
+            )
         );
     }
 
