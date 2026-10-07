@@ -616,6 +616,11 @@
     </fieldPermissions>
     <fieldPermissions>
         <editable>false</editable>
+        <field>DocGen_Template__c.Attached_Document_Markup__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
         <field>DocGen_Template__c.Hide_Signer_Decline__c</field>
         <readable>true</readable>
     </fieldPermissions>
@@ -1006,6 +1011,21 @@
     <fieldPermissions>
         <editable>false</editable>
         <field>DocGen_Signer_Attachment__c.Fetched_At__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>DocGen_Signer_Attachment__c.Markup_Content_Version_Id__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>DocGen_Signer_Attachment__c.Markup_Saved_At__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>DocGen_Signer_Attachment__c.Markup_Sha256__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>

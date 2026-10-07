@@ -131,6 +131,7 @@ import PREFILL_SIGNER_EMAIL_FIELD from '@salesforce/schema/DocGen_Template__c.Pr
 // #367
 import HIDE_SIGNER_DECLINE_FIELD from '@salesforce/schema/DocGen_Template__c.Hide_Signer_Decline__c';
 import ATTACHED_DOCUMENTS_FIELD from '@salesforce/schema/DocGen_Template__c.Attached_Documents__c';
+import ATTACHED_DOCUMENT_MARKUP_FIELD from '@salesforce/schema/DocGen_Template__c.Attached_Document_Markup__c';
 import getSettingsFresh from '@salesforce/apex/DocGenSetupController.getSettingsFresh';
 import testRecordFilter from '@salesforce/apex/DocGenController.testRecordFilter';
 // 1.61 — HTML zip sidesteps File Upload Security via client-side unzip + per-part upload
@@ -263,6 +264,7 @@ const F = {
     PrefillSignerEmail: PREFILL_SIGNER_EMAIL_FIELD.fieldApiName,
     HideSignerDecline: HIDE_SIGNER_DECLINE_FIELD.fieldApiName,
     AttachedDocuments: ATTACHED_DOCUMENTS_FIELD.fieldApiName,
+    AttachedDocumentMarkup: ATTACHED_DOCUMENT_MARKUP_FIELD.fieldApiName,
     // PHD-9 — stable developer key for Flow lookups; namespace resolved from an
     // already-imported field (same pattern as FormFieldsConfig).
     ApiName:
@@ -496,6 +498,7 @@ export default class DocGenAdmin extends NavigationMixin(LightningElement) {
     // #367 — "Hide Decline Button" for this template; unchecked by default (Decline shown).
     @track editTemplateHideDecline = false;
     @track editTemplateAttachedDocuments = 'Off'; // #412
+    @track editTemplateAttachedDocumentMarkup = 'Off'; // #412 M2
     // #367 — org-wide "Hide Decline Button", fetched once on mount so this template
     // toggle can hide itself when the org has already hidden Decline everywhere.
     @track orgHideDecline = false;
@@ -4551,6 +4554,23 @@ export default class DocGenAdmin extends NavigationMixin(LightningElement) {
     handleAttachedDocumentsChange(event) {
         this.editTemplateAttachedDocuments = event.detail.value;
     }
+    // #412 M2 — whether signers may mark up the attached documents, and with which outcome
+    get attachedDocumentMarkupOptions() {
+        return [
+            { label: 'Off', value: 'Off' },
+            { label: 'Decline only — an approval means approved as-is', value: 'Decline only' },
+            {
+                label: 'Approve or decline — an approval with markup means approved as noted',
+                value: 'Approve or decline'
+            }
+        ];
+    }
+    get showAttachedDocumentMarkup() {
+        return !!this.editTemplateAttachedDocuments && this.editTemplateAttachedDocuments !== 'Off';
+    }
+    handleAttachedDocumentMarkupChange(event) {
+        this.editTemplateAttachedDocumentMarkup = event.detail.value;
+    }
     // #412 — sends with attached documents are refused while Decline is hidden.
     get attachedDocumentsDeclineWarning() {
         if (!this.editTemplateAttachedDocuments || this.editTemplateAttachedDocuments === 'Off') {
@@ -5271,6 +5291,7 @@ export default class DocGenAdmin extends NavigationMixin(LightningElement) {
             this.editTemplatePrefillSignerEmail = row[F.PrefillSignerEmail] || 'Inherit';
             this.editTemplateHideDecline = row[F.HideSignerDecline] === true;
             this.editTemplateAttachedDocuments = row[F.AttachedDocuments] || 'Off';
+            this.editTemplateAttachedDocumentMarkup = row[F.AttachedDocumentMarkup] || 'Off';
             this.editTemplateApiName = row[F.ApiName] || '';
             this.editTemplateDefaultEmailMessage = row[F.DefaultEmailMessage] || '';
             this.editTemplateSpecificRecordIds = row[F.SpecificRecordIds];
@@ -5398,6 +5419,7 @@ export default class DocGenAdmin extends NavigationMixin(LightningElement) {
             this.editTemplatePrefillSignerEmail,
             this.editTemplateHideDecline,
             this.editTemplateAttachedDocuments,
+            this.editTemplateAttachedDocumentMarkup,
             this.editTemplateApiName,
             this.editTemplateDefaultEmailMessage
         ]);
@@ -5804,6 +5826,7 @@ export default class DocGenAdmin extends NavigationMixin(LightningElement) {
             Prefill_Signer_Email__c: this.editTemplatePrefillSignerEmail,
             Hide_Signer_Decline__c: this.editTemplateHideDecline,
             Attached_Documents__c: this.editTemplateAttachedDocuments,
+            Attached_Document_Markup__c: this.editTemplateAttachedDocumentMarkup,
             API_Name__c: this.editTemplateApiName,
             Default_Email_Message__c: this.editTemplateDefaultEmailMessage
         };
@@ -5885,6 +5908,7 @@ export default class DocGenAdmin extends NavigationMixin(LightningElement) {
             Prefill_Signer_Email__c: this.editTemplatePrefillSignerEmail,
             Hide_Signer_Decline__c: this.editTemplateHideDecline,
             Attached_Documents__c: this.editTemplateAttachedDocuments,
+            Attached_Document_Markup__c: this.editTemplateAttachedDocumentMarkup,
             API_Name__c: this.editTemplateApiName,
             Default_Email_Message__c: this.editTemplateDefaultEmailMessage
         };

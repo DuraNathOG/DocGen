@@ -12,9 +12,15 @@
  * gating (token, expiry, terminal state, PIN, index range, pinned version unchanged) lives in
  * DocGenSignatureAttachments.serve; this class only translates to and from HTTP.
  *
- * The GET writes evidence (the SHA-256 on first serve, the signer's Fetched At): it is not
- * CSRF-reachable, because the token has to arrive in a custom header, which a cross-site request
- * cannot set without a CORS preflight the Site never grants.
+ *   POST {Site}/services/apexrest/[ns/]signature-attachment?index=N   (#412 M2)
+ *   X-Portwood-Token: <token>, body: the marked-up PDF (raw bytes)
+ *
+ * The POST saves the signer's marked-up copy of document N to the related record as a new file
+ * (DocGenSignatureAttachments.saveMarkup holds the gating).
+ *
+ * Both write evidence (the GET: the SHA-256 on first serve and the signer's Fetched At; the POST:
+ * the markup). Neither is CSRF-reachable, because the token has to arrive in a custom header,
+ * which a cross-site request cannot set without a CORS preflight the Site never grants.
  */
 @RestResource(urlMapping='/signature-attachment/*')
 global without sharing class DocGenSignatureAttachmentRest { // NOPMD AvoidGlobalModifier — Apex REST resources must be global
@@ -29,17 +35,9 @@ global without sharing class DocGenSignatureAttachmentRest { // NOPMD AvoidGloba
         res.addHeader('Vary', TOKEN_HEADER); // one URL serves every signer; never share a cached copy
         res.addHeader('X-Content-Type-Options', 'nosniff');
 
-        Integer index;
-        try {
-            String raw = req.params.get('index');
-            index = String.isBlank(raw) ? null : Integer.valueOf(raw);
-        } catch (Exception e) {
-            index = null;
-        }
-
         DocGenSignatureAttachments.GuestResult result;
         try {
-            result = DocGenSignatureAttachments.serve(header(req, TOKEN_HEADER), index);
+            result = DocGenSignatureAttachments.serve(header(req, TOKEN_HEADER), indexParam(req));
         } catch (Exception e) {
             DocGenErrorLogger.log('DocGenSignatureAttachmentRest', e);
             result = new DocGenSignatureAttachments.GuestResult();
@@ -58,6 +56,42 @@ global without sharing class DocGenSignatureAttachmentRest { // NOPMD AvoidGloba
         res.addHeader('Content-Disposition', 'inline; filename="' + safeFileName(result.title) + '.pdf"');
         res.addHeader('X-Portwood-Sha256', result.sha256);
         res.responseBody = result.bytes;
+    }
+
+    @HttpPost
+    global static void saveMarkup() {
+        RestRequest req = RestContext.request;
+        RestResponse res = RestContext.response;
+        res.addHeader('Cache-Control', 'no-store');
+        res.addHeader('X-Content-Type-Options', 'nosniff');
+        res.addHeader('Content-Type', 'application/json');
+
+        DocGenSignatureAttachments.GuestResult result;
+        try {
+            result = DocGenSignatureAttachments.saveMarkup(header(req, TOKEN_HEADER), indexParam(req), req.requestBody);
+        } catch (Exception e) {
+            DocGenErrorLogger.log('DocGenSignatureAttachmentRest', e);
+            result = new DocGenSignatureAttachments.GuestResult();
+            result.status = 500;
+            result.error = 'Your markup could not be saved. Please try again.';
+        }
+        res.statusCode = result.status;
+        if (result.status != 200) {
+            res.responseBody = Blob.valueOf(JSON.serialize(new Map<String, Object>{ 'error' => result.error }));
+            return;
+        }
+        res.responseBody = Blob.valueOf(
+            JSON.serialize(new Map<String, Object>{ 'sha256' => result.sha256, 'title' => result.title })
+        );
+    }
+
+    private static Integer indexParam(RestRequest req) {
+        try {
+            String raw = req.params.get('index');
+            return String.isBlank(raw) ? null : Integer.valueOf(raw);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @TestVisible

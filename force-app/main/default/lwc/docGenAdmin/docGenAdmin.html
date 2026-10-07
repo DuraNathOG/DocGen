@@ -3815,6 +3815,17 @@
                                                 </p>
                                             </div>
                                         </template>
+                                        <!-- #412 M2 — markup on the attached documents -->
+                                        <template if:true={showAttachedDocumentMarkup}>
+                                            <lightning-combobox
+                                                label="Attached Document Markup (e-sign)"
+                                                value={editTemplateAttachedDocumentMarkup}
+                                                options={attachedDocumentMarkupOptions}
+                                                onchange={handleAttachedDocumentMarkupChange}
+                                                field-level-help="Lets signers mark up the attached documents with a pen and text notes. Each marked-up copy is saved to the record as a new file, and the signed copy lists who marked up what. Decline only: markups go with a decline, so an approval means approved as-is. Approve or decline: an approval can carry markups too (approved as noted). Off by default."
+                                                class="slds-var-m-top_medium"
+                                            ></lightning-combobox>
+                                        </template>
                                     </div>
                                     <div class="slds-col slds-size_1-of-2">
                                         <!-- #208 — per-template default email message -->

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Attached_Document_Markup__c</fullName>
+    <description
+    >Whether signers may mark up the attached documents (#412 M2) and with which outcome. Off = no markup (default); Decline only = markups go with a decline, so an approval means approved as-is; Approve or decline = markups go with either, so an approval with markups means approved as noted. Each marked-up copy is saved to the related record as a new file. Needs Attached Documents on.</description>
+    <externalId>false</externalId>
+    <label>Attached Document Markup</label>
+    <required>false</required>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value><fullName>Off</fullName><default>true</default><label>Off</label></value>
+            <value><fullName>Decline only</fullName><default>false</default><label>Decline only</label></value>
+            <value><fullName>Approve or decline</fullName><default>false</default><label
+                >Approve or decline</label></value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

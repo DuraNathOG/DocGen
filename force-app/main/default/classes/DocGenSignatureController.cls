@@ -887,7 +887,9 @@ public without sharing class DocGenSignatureController {
                 gate.signer.Signature_Request__c,
                 gate.signer.Id
             ),
-            'endpoint' => DocGenSignatureAttachments.endpointPath()
+            'endpoint' => DocGenSignatureAttachments.endpointPath(),
+            // #412 M2 — Off / Decline only / Approve or decline
+            'markup' => DocGenSignatureAttachments.markupMode(gate.signer)
         };
     }
 

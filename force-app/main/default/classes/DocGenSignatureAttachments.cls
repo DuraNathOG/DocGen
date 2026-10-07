@@ -47,6 +47,16 @@ public inherited sharing class DocGenSignatureAttachments {
     public static final String POSITION_BEFORE = 'Before';
     public static final String POSITION_AFTER = 'After';
 
+    // #412 M2 — DocGen_Template__c.Attached_Document_Markup__c
+    public static final String MARKUP_OFF = 'Off';
+    public static final String MARKUP_DECLINE_ONLY = 'Decline only';
+    public static final String MARKUP_APPROVE_OR_DECLINE = 'Approve or decline';
+    // A markup is the pinned original plus appended annotations (PDF.js saves incrementally), so
+    // it is always larger than the original and rarely by more than a few KB.
+    @TestVisible
+    private static Long markupHeadroomBytes = 10L * 1024L * 1024L;
+    private static final String PDF_HEADER_BASE64 = 'JVBERi0'; // "%PDF-"
+
     private static final Set<String> ATTACHMENT_FIELDS = new Set<String>{
         'Signature_Request__c',
         'Content_Version_Id__c',
@@ -79,6 +89,7 @@ public inherited sharing class DocGenSignatureAttachments {
         public Blob bytes;
         public String sha256;
         public String title;
+        public Datetime savedAt;
     }
 
     // =====================================================================
@@ -447,19 +458,23 @@ public inherited sharing class DocGenSignatureAttachments {
             return manifest;
         }
         Map<Id, Datetime> viewedAt = new Map<Id, Datetime>();
+        Map<Id, Datetime> markedUpAt = new Map<Id, Datetime>();
         if (signerId != null) {
             DocGenFlsGuard.guestAssertAccessible(
                 DocGen_Signer_Attachment__c.sObjectType,
-                new Set<String>{ 'Signer__c', 'Attachment__c', 'Viewed_At__c' }
+                new Set<String>{ 'Signer__c', 'Attachment__c', 'Viewed_At__c', 'Markup_Saved_At__c' }
             );
             /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
             for (DocGen_Signer_Attachment__c review : [
-                SELECT Attachment__c, Viewed_At__c
+                SELECT Attachment__c, Viewed_At__c, Markup_Saved_At__c
                 FROM DocGen_Signer_Attachment__c
                 WHERE Signer__c = :signerId
                 WITH SYSTEM_MODE
             ]) {
                 viewedAt.put(review.Attachment__c, review.Viewed_At__c);
+                if (review.Markup_Saved_At__c != null) {
+                    markedUpAt.put(review.Attachment__c, review.Markup_Saved_At__c);
+                }
             }
         }
         for (DocGen_Signature_Attachment__c row : rows) {
@@ -472,7 +487,8 @@ public inherited sharing class DocGenSignatureAttachments {
                     'size' => row.File_Size__c == null ? 0 : row.File_Size__c.longValue(),
                     'position' => String.isBlank(row.Position__c) ? POSITION_BEFORE : row.Position__c,
                     'sha256' => row.Sha256__c,
-                    'viewedAt' => viewed == null ? null : isoUtc(viewed)
+                    'viewedAt' => viewed == null ? null : isoUtc(viewed),
+                    'markedUpAt' => markedUpAt.containsKey(row.Id) ? isoUtc(markedUpAt.get(row.Id)) : null
                 }
             );
         }
@@ -572,10 +588,45 @@ public inherited sharing class DocGenSignatureAttachments {
                     }
                 );
         }
+        // #412 M2 — each signer's marked-up copy, with its fingerprint.
+        DocGenFlsGuard.guestAssertAccessible(
+            DocGen_Signer_Attachment__c.sObjectType,
+            new Set<String>{ 'Markup_Content_Version_Id__c', 'Markup_Saved_At__c', 'Markup_Sha256__c' }
+        );
+        Map<Integer, List<Map<String, Object>>> markedUpByIndex = new Map<Integer, List<Map<String, Object>>>();
+        /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
+        for (DocGen_Signer_Attachment__c review : [
+            SELECT Markup_Saved_At__c, Markup_Sha256__c, Signer__r.Signer_Name__c, Attachment__r.Sort_Order__c
+            FROM DocGen_Signer_Attachment__c
+            WHERE Attachment__r.Signature_Request__c = :requestId AND Markup_Content_Version_Id__c != NULL
+            WITH SYSTEM_MODE
+            ORDER BY Signer__r.Sort_Order__c ASC, Markup_Saved_At__c ASC
+        ]) {
+            Integer index = review.Attachment__r.Sort_Order__c == null
+                ? 0
+                : review.Attachment__r.Sort_Order__c.intValue();
+            if (!markedUpByIndex.containsKey(index)) {
+                markedUpByIndex.put(index, new List<Map<String, Object>>());
+            }
+            markedUpByIndex.get(index)
+                .add(
+                    new Map<String, Object>{
+                        'name' => review.Signer__r.Signer_Name__c,
+                        'at' => review.Markup_Saved_At__c == null
+                            ? null
+                            : review.Markup_Saved_At__c.format('MMMM d, yyyy h:mm a z'),
+                        'sha256' => review.Markup_Sha256__c
+                    }
+                );
+        }
         for (Map<String, Object> entry : register) {
             entry.remove('viewedAt');
-            List<Map<String, Object>> openedBy = openedByIndex.get((Integer) entry.get('index'));
+            entry.remove('markedUpAt');
+            Integer index = (Integer) entry.get('index');
+            List<Map<String, Object>> openedBy = openedByIndex.get(index);
             entry.put('openedBy', openedBy == null ? new List<Map<String, Object>>() : openedBy);
+            List<Map<String, Object>> markedUpBy = markedUpByIndex.get(index);
+            entry.put('markedUpBy', markedUpBy == null ? new List<Map<String, Object>>() : markedUpBy);
         }
         return register;
     }
@@ -616,9 +667,14 @@ public inherited sharing class DocGenSignatureAttachments {
                 'CreatedDate',
                 'PIN_Verified_At__c',
                 'Attachments_Reviewed_At__c',
+                'Signer_Name__c',
                 'Signature_Request__c',
                 'Secure_Token__c'
             }
+        );
+        DocGenFlsGuard.guestAssertAccessible(
+            DocGen_Template__c.sObjectType,
+            new Set<String>{ 'Attached_Document_Markup__c' }
         );
         DocGenFlsGuard.guestAssertAccessible(
             DocGen_Signature_Request__c.sObjectType,
@@ -632,7 +688,9 @@ public inherited sharing class DocGenSignatureAttachments {
                 CreatedDate,
                 PIN_Verified_At__c,
                 Attachments_Reviewed_At__c,
+                Signer_Name__c,
                 Signature_Request__c,
+                Signature_Request__r.Template__r.Attached_Document_Markup__c,
                 Signature_Request__r.Status__c,
                 Signature_Request__r.Expires_At__c,
                 Signature_Request__r.Require_Email_Verification__c,
@@ -766,11 +824,17 @@ public inherited sharing class DocGenSignatureAttachments {
     private static DocGen_Signer_Attachment__c reviewFor(Id signerId, Id attachmentId) {
         DocGenFlsGuard.guestAssertAccessible(
             DocGen_Signer_Attachment__c.sObjectType,
-            new Set<String>{ 'Signer__c', 'Attachment__c', 'Viewed_At__c', 'Fetched_At__c' }
+            new Set<String>{
+                'Signer__c',
+                'Attachment__c',
+                'Viewed_At__c',
+                'Fetched_At__c',
+                'Markup_Content_Version_Id__c'
+            }
         );
         /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
         List<DocGen_Signer_Attachment__c> reviews = [
-            SELECT Id, Viewed_At__c, Fetched_At__c
+            SELECT Id, Viewed_At__c, Fetched_At__c, Markup_Content_Version_Id__c
             FROM DocGen_Signer_Attachment__c
             WHERE Signer__c = :signerId AND Attachment__c = :attachmentId
             WITH SYSTEM_MODE
@@ -782,12 +846,18 @@ public inherited sharing class DocGenSignatureAttachments {
     }
 
     private static void saveReview(DocGen_Signer_Attachment__c review, String field) {
+        saveReview(review, new Set<String>{ field });
+    }
+
+    private static void saveReview(DocGen_Signer_Attachment__c review, Set<String> fields) {
         if (review.Id == null) {
-            DocGenFlsGuard.guestAssertCreateable(review, new Set<String>{ 'Signer__c', 'Attachment__c', field });
+            Set<String> createFields = new Set<String>{ 'Signer__c', 'Attachment__c' };
+            createFields.addAll(fields);
+            DocGenFlsGuard.guestAssertCreateable(review, createFields);
             /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
             Database.insert(review, AccessLevel.SYSTEM_MODE);
         } else {
-            DocGenFlsGuard.guestAssertUpdateable(review, new Set<String>{ field });
+            DocGenFlsGuard.guestAssertUpdateable(review, fields);
             /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
             Database.update(review, AccessLevel.SYSTEM_MODE);
         }
@@ -857,7 +927,144 @@ public inherited sharing class DocGenSignatureAttachments {
         if (signers.isEmpty() || signers[0].Attachments_Reviewed_At__c == null) {
             return 'Confirm that you have reviewed the attached documents before approving. Decline is still available.';
         }
+        // #412 M2 — under "Decline only", an approval means approved as-is, so markups can only
+        // go with a decline.
+        if (requestMarkupMode(requestId) == MARKUP_DECLINE_ONLY && markupCount(signerId) > 0) {
+            return 'Your markups can only be sent with a decline: approving here means approving the documents as they are. ' +
+                'Decline to send your markups.';
+        }
         return null;
+    }
+
+    // =====================================================================
+    // MARKUP (#412 M2)
+    // =====================================================================
+
+    /** The template's markup setting for a signer resolved by resolveSigner; blank means Off. */
+    public static String markupMode(DocGen_Signer__c signer) {
+        String mode = signer?.Signature_Request__r?.Template__r?.Attached_Document_Markup__c;
+        return String.isBlank(mode) ? MARKUP_OFF : mode;
+    }
+
+    private static String requestMarkupMode(Id requestId) {
+        DocGenFlsGuard.guestAssertAccessible(
+            DocGen_Template__c.sObjectType,
+            new Set<String>{ 'Attached_Document_Markup__c' }
+        );
+        /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
+        List<DocGen_Signature_Request__c> requests = [
+            SELECT Template__r.Attached_Document_Markup__c
+            FROM DocGen_Signature_Request__c
+            WHERE Id = :requestId
+            WITH SYSTEM_MODE
+            LIMIT 1
+        ];
+        String mode = requests.isEmpty() ? null : requests[0].Template__r?.Attached_Document_Markup__c;
+        return String.isBlank(mode) ? MARKUP_OFF : mode;
+    }
+
+    @TestVisible
+    private static Integer markupCount(Id signerId) {
+        DocGenFlsGuard.guestAssertAccessible(
+            DocGen_Signer_Attachment__c.sObjectType,
+            new Set<String>{ 'Signer__c', 'Markup_Content_Version_Id__c' }
+        );
+        /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
+        return [
+            SELECT COUNT()
+            FROM DocGen_Signer_Attachment__c
+            WHERE Signer__c = :signerId AND Markup_Content_Version_Id__c != NULL
+            WITH SYSTEM_MODE
+        ];
+    }
+
+    /**
+     * Saves a signer's marked-up copy of attachment [index] to the related record. The page sends
+     * what PDF.js's saveDocument() writes: the pinned original with the annotations appended. Gated
+     * like serve, plus: the template allows markup, the copy is a PDF, and it is larger than the
+     * original by no more than markupHeadroomBytes. The first save creates a new file on the
+     * record; a later save before the signer finishes adds a version to that file. The original
+     * is never touched. Whether a markup may go with an approval is checked when the signer
+     * approves (approvalError), because the outcome isn't known yet.
+     */
+    public static GuestResult saveMarkup(String token, Integer index, Blob body) {
+        GuestResult r = resolveSigner(token);
+        if (r.status != 200) {
+            return r;
+        }
+        if (markupMode(r.signer) == MARKUP_OFF) {
+            return fail(r, 403, 'Markup is not available for this document.');
+        }
+        if (index == null || index < 0) {
+            return fail(r, 400, 'Missing or invalid attachment index.');
+        }
+        DocGen_Signature_Attachment__c row = attachmentAt(r.signer.Signature_Request__c, index);
+        if (row == null) {
+            return fail(r, 404, 'Attached document not found.');
+        }
+        Long originalSize = row.File_Size__c == null ? 0 : row.File_Size__c.longValue();
+        Integer size = body == null ? 0 : body.size();
+        String invalid =
+            'The marked-up copy of "' +
+            row.Title__c +
+            '" could not be saved. Please reload the page and try again.';
+        if (size <= originalSize || size > originalSize + markupHeadroomBytes) {
+            return fail(r, 400, invalid);
+        }
+        if (!EncodingUtil.base64Encode(body).startsWith(PDF_HEADER_BASE64)) {
+            return fail(r, 400, invalid);
+        }
+
+        DocGen_Signer_Attachment__c review = reviewFor(r.signer.Id, row.Id);
+        if (review.Fetched_At__c == null) {
+            return fail(r, 409, 'Open "' + row.Title__c + '" before marking it up.');
+        }
+        ContentVersion cv = new ContentVersion(VersionData = body);
+        Set<String> cvFields = new Set<String>{ 'VersionData', 'Title', 'PathOnClient' };
+        String title = (row.Title__c +
+            ' - markup - ' +
+            r.signer.Signer_Name__c +
+            ' ' +
+            System.now().format('yyyy-MM-dd'))
+            .left(240);
+        Id priorDocumentId = markupDocumentId(review.Markup_Content_Version_Id__c);
+        if (priorDocumentId != null) {
+            cv.ContentDocumentId = priorDocumentId; // a new version of the signer's markup file
+            cvFields.add('ContentDocumentId');
+        } else {
+            cv.FirstPublishLocationId = r.signer.Signature_Request__r.Related_Record_Id__c;
+            cvFields.add('FirstPublishLocationId');
+        }
+        cv.Title = title;
+        cv.PathOnClient = title + '.pdf';
+        DocGenFlsGuard.guestAssertCreateable(cv, cvFields);
+        /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
+        Database.insert(cv, AccessLevel.SYSTEM_MODE);
+
+        review.Markup_Content_Version_Id__c = cv.Id;
+        review.Markup_Sha256__c = EncodingUtil.convertToHex(Crypto.generateDigest('SHA-256', body));
+        review.Markup_Saved_At__c = System.now();
+        saveReview(review, new Set<String>{ 'Markup_Content_Version_Id__c', 'Markup_Sha256__c', 'Markup_Saved_At__c' });
+        r.sha256 = review.Markup_Sha256__c;
+        r.savedAt = review.Markup_Saved_At__c;
+        r.title = title;
+        return r;
+    }
+
+    private static Id markupDocumentId(String contentVersionId) {
+        if (String.isBlank(contentVersionId)) {
+            return null;
+        }
+        DocGenFlsGuard.guestAssertAccessible(ContentVersion.sObjectType, new Set<String>{ 'ContentDocumentId' });
+        /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
+        List<ContentVersion> prior = [
+            SELECT ContentDocumentId
+            FROM ContentVersion
+            WHERE Id = :contentVersionId
+            WITH SYSTEM_MODE
+            LIMIT 1
+        ];
+        return prior.isEmpty() ? null : prior[0].ContentDocumentId;
     }
 
     /**
@@ -964,12 +1171,20 @@ public inherited sharing class DocGenSignatureAttachments {
                 'Content_Document_Id__c',
                 'Platform_Checksum__c',
                 'Sha256__c',
-                'Title__c'
+                'Title__c',
+                'File_Size__c'
             }
         );
         /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
         List<DocGen_Signature_Attachment__c> rows = [
-            SELECT Id, Content_Version_Id__c, Content_Document_Id__c, Platform_Checksum__c, Sha256__c, Title__c
+            SELECT
+                Id,
+                Content_Version_Id__c,
+                Content_Document_Id__c,
+                Platform_Checksum__c,
+                Sha256__c,
+                Title__c,
+                File_Size__c
             FROM DocGen_Signature_Attachment__c
             WHERE Signature_Request__c = :requestId AND Sort_Order__c = :index
             WITH SYSTEM_MODE
