@@ -737,14 +737,95 @@
                     font-size: 0.8125rem;
                     flex-shrink: 0;
                 }
-                .markup-bar .btn {
-                    padding: 0.2rem 0.65rem;
-                    font-size: 0.8125rem;
+                .markup-group {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.25rem;
+                    position: relative;
                 }
-                .markup-bar .btn.active {
+                .markup-group + .markup-group {
+                    border-left: 1px solid #f4bc8e;
+                    padding-left: 0.5rem;
+                }
+                .markup-tool {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0.35rem;
+                    background: #fff;
+                    border: 1px solid #c9c7c5;
+                    border-radius: 0.25rem;
+                    color: #3e3e3c;
+                    font-size: 0.8125rem;
+                    line-height: 1;
+                    padding: 0.35rem 0.55rem;
+                    cursor: pointer;
+                }
+                .markup-tool:hover:not(:disabled) {
+                    background: #f3f3f3;
+                }
+                .markup-tool:disabled {
+                    color: #a8a6a3;
+                    cursor: default;
+                }
+                .markup-tool.active {
                     background: #0176d3;
                     border-color: #0176d3;
                     color: #fff;
+                }
+                .markup-icon {
+                    width: 0.875rem;
+                    height: 0.875rem;
+                    fill: currentColor;
+                }
+                .markup-swatch {
+                    width: 0.875rem;
+                    height: 0.875rem;
+                    border-radius: 50%;
+                    border: 1px solid rgba(0, 0, 0, 0.25);
+                }
+                .markup-menu {
+                    position: absolute;
+                    top: calc(100% + 0.35rem);
+                    left: 0;
+                    z-index: 20;
+                    background: #fff;
+                    border: 1px solid #c9c7c5;
+                    border-radius: 0.25rem;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+                    padding: 0.6rem 0.75rem;
+                    min-width: 13rem;
+                }
+                .markup-menu-label {
+                    color: #706e6b;
+                    font-size: 0.75rem;
+                    margin: 0.35rem 0 0.25rem;
+                }
+                .markup-menu-row {
+                    display: flex;
+                    gap: 0.35rem;
+                }
+                .markup-menu-row .markup-tool {
+                    padding: 0.3rem 0.5rem;
+                }
+                .markup-color {
+                    width: 1.5rem;
+                    height: 1.5rem;
+                    border-radius: 50%;
+                    border: 2px solid #fff;
+                    box-shadow: 0 0 0 1px #c9c7c5;
+                    cursor: pointer;
+                }
+                .markup-color.active {
+                    box-shadow: 0 0 0 2px #0176d3;
+                }
+                .btn-destructive.primary {
+                    background: #ea001e;
+                    color: #fff;
+                }
+                @media (max-width: 600px) {
+                    .markup-label {
+                        display: none;
+                    }
                 }
                 .markup-note {
                     color: #706e6b;
@@ -935,15 +1016,140 @@
                                 </button>
                             </div>
                             <!-- #412 M2 — shown when the template allows markup -->
-                            <div id="markup-bar" class="markup-bar" style="display: none">
-                                <strong>Mark up:</strong>
-                                <button id="markup-move" class="btn active" type="button">Move</button>
-                                <button id="markup-pen" class="btn" type="button">Pen</button>
-                                <button id="markup-text" class="btn" type="button">Text</button>
-                                <button id="markup-undo" class="btn" type="button" disabled="disabled">Undo</button>
-                                <button id="markup-clear" class="btn" type="button" disabled="disabled">
-                                    Clear my marks
-                                </button>
+                            <div
+                                id="markup-bar"
+                                class="markup-bar"
+                                style="display: none"
+                                role="toolbar"
+                                aria-label="Markup tools"
+                            >
+                                <div class="markup-group">
+                                    <button
+                                        id="markup-move"
+                                        class="markup-tool active"
+                                        type="button"
+                                        title="Move around the drawing"
+                                        aria-pressed="true"
+                                    >
+                                        <svg class="markup-icon" aria-hidden="true">
+                                            <use
+                                                href="{!URLFOR($Asset.SLDS, 'assets/icons/utility-sprite/svg/symbols.svg#move')}"
+                                            ></use></svg
+                                        ><span class="markup-label">Move</span>
+                                    </button>
+                                    <button
+                                        id="markup-pen"
+                                        class="markup-tool"
+                                        type="button"
+                                        title="Draw on the drawing"
+                                        aria-pressed="false"
+                                    >
+                                        <svg class="markup-icon" aria-hidden="true">
+                                            <use
+                                                href="{!URLFOR($Asset.SLDS, 'assets/icons/utility-sprite/svg/symbols.svg#edit')}"
+                                            ></use></svg
+                                        ><span class="markup-label">Draw</span>
+                                    </button>
+                                    <button
+                                        id="markup-text"
+                                        class="markup-tool"
+                                        type="button"
+                                        title="Add a text note: click where it goes"
+                                        aria-pressed="false"
+                                    >
+                                        <svg class="markup-icon" aria-hidden="true">
+                                            <use
+                                                href="{!URLFOR($Asset.SLDS, 'assets/icons/utility-sprite/svg/symbols.svg#text')}"
+                                            ></use></svg
+                                        ><span class="markup-label">Text</span>
+                                    </button>
+                                </div>
+                                <div class="markup-group">
+                                    <button
+                                        id="markup-style"
+                                        class="markup-tool"
+                                        type="button"
+                                        title="Colour and size"
+                                        aria-haspopup="true"
+                                        aria-expanded="false"
+                                    >
+                                        <span id="markup-swatch" class="markup-swatch"></span
+                                        ><span class="markup-label">Style</span>
+                                    </button>
+                                    <div id="markup-style-menu" class="markup-menu" style="display: none">
+                                        <div class="markup-menu-label">Colour</div>
+                                        <div class="markup-menu-row">
+                                            <button
+                                                class="markup-color"
+                                                type="button"
+                                                data-color="#d0021b"
+                                                style="background: #d0021b"
+                                                aria-label="Red"
+                                            ></button>
+                                            <button
+                                                class="markup-color"
+                                                type="button"
+                                                data-color="#0b5cab"
+                                                style="background: #0b5cab"
+                                                aria-label="Blue"
+                                            ></button>
+                                            <button
+                                                class="markup-color"
+                                                type="button"
+                                                data-color="#2e844a"
+                                                style="background: #2e844a"
+                                                aria-label="Green"
+                                            ></button>
+                                            <button
+                                                class="markup-color"
+                                                type="button"
+                                                data-color="#181818"
+                                                style="background: #181818"
+                                                aria-label="Black"
+                                            ></button>
+                                        </div>
+                                        <div class="markup-menu-label">Pen</div>
+                                        <div class="markup-menu-row">
+                                            <button class="markup-tool" type="button" data-thickness="1.5">Thin</button>
+                                            <button class="markup-tool" type="button" data-thickness="3">Medium</button>
+                                            <button class="markup-tool" type="button" data-thickness="6">Thick</button>
+                                        </div>
+                                        <div class="markup-menu-label">Text</div>
+                                        <div class="markup-menu-row">
+                                            <button class="markup-tool" type="button" data-size="10">Small</button>
+                                            <button class="markup-tool" type="button" data-size="14">Medium</button>
+                                            <button class="markup-tool" type="button" data-size="20">Large</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="markup-group">
+                                    <button
+                                        id="markup-undo"
+                                        class="markup-tool"
+                                        type="button"
+                                        title="Undo"
+                                        disabled="disabled"
+                                    >
+                                        <svg class="markup-icon" aria-hidden="true">
+                                            <use
+                                                href="{!URLFOR($Asset.SLDS, 'assets/icons/utility-sprite/svg/symbols.svg#undo')}"
+                                            ></use></svg
+                                        ><span class="markup-label">Undo</span>
+                                    </button>
+                                    <button
+                                        id="markup-clear"
+                                        class="markup-tool"
+                                        type="button"
+                                        title="Remove all your marks from this document"
+                                        disabled="disabled"
+                                    >
+                                        <svg class="markup-icon" aria-hidden="true">
+                                            <use
+                                                href="{!URLFOR($Asset.SLDS, 'assets/icons/utility-sprite/svg/symbols.svg#delete')}"
+                                            ></use></svg
+                                        ><span id="markup-clear-label" class="markup-label">Clear my marks</span>
+                                    </button>
+                                </div>
                                 <span id="markup-note" class="markup-note"></span>
                             </div>
                             <div class="pdf-viewer attachment-viewer" id="attachment-viewer-container"></div>
@@ -1832,7 +2038,11 @@
                         st.pending = 1;
                     }
 
-                    // #412 M2 — a red pen and red text, so markups stand out from the drawing.
+                    // #412 M2 — the signer's pen and text style (red by default, so markups stand
+                    // out from the drawing). Sent to PDF.js's editors: new marks use it, and so does
+                    // a mark that is selected.
+                    var toolStyle = { color: '#d0021b', thickness: 3, fontSize: 14 };
+
                     function applyToolParams(st) {
                         var params = st.core.AnnotationEditorParamsType;
                         var set = function (type, value) {
@@ -1843,11 +2053,11 @@
                             });
                         };
                         if (st.tool === 'pen') {
-                            set(params.INK_COLOR, '#d0021b');
-                            set(params.INK_THICKNESS, 3);
+                            set(params.INK_COLOR, toolStyle.color);
+                            set(params.INK_THICKNESS, toolStyle.thickness);
                         } else if (st.tool === 'text') {
-                            set(params.FREETEXT_COLOR, '#d0021b');
-                            set(params.FREETEXT_SIZE, 14);
+                            set(params.FREETEXT_COLOR, toolStyle.color);
+                            set(params.FREETEXT_SIZE, toolStyle.fontSize);
                         }
                     }
 
@@ -2145,6 +2355,22 @@
                             st.scroller.classList.toggle('dg-pen', tool === 'pen');
                             applyToolParams(st); // when the mode is unchanged (no event)
                             notify(st);
+                        },
+
+                        // { color, thickness, fontSize }: any of them.
+                        setStyle: function (style) {
+                            Object.keys(style || {}).forEach(function (key) {
+                                toolStyle[key] = style[key];
+                            });
+                            if (current && current.markup) applyToolParams(current);
+                        },
+
+                        style: function () {
+                            return {
+                                color: toolStyle.color,
+                                thickness: toolStyle.thickness,
+                                fontSize: toolStyle.fontSize
+                            };
                         },
 
                         undo: function () {
@@ -2805,12 +3031,16 @@
                             false,
                             true
                         );
+                        var onProgress = function (loaded, total) {
+                            if (bar && total) bar.style.width = Math.min(100, Math.round((loaded / total) * 100)) + '%';
+                        };
+                        // #412 M2 — the signer's marked-up copy when there is one: in this session's
+                        // memory, or saved earlier (e.g. before a reload), so new marks build on it.
                         var source = markupBytes[a.index]
                             ? Promise.resolve(markupBytes[a.index])
-                            : fetchAttachmentBytes(a, function (loaded, total) {
-                                  if (bar && total)
-                                      bar.style.width = Math.min(100, Math.round((loaded / total) * 100)) + '%';
-                              });
+                            : a.markedUpAt && markupMode !== 'Off'
+                              ? fetchSavedMarkup(a, onProgress)
+                              : fetchAttachmentBytes(a, onProgress);
                         source
                             .then(function (bytes) {
                                 if (gen !== attachmentLoadGen) return null;
@@ -2995,21 +3225,21 @@
                     }
 
                     // ===== #412 M2 MARKUP =====
-                    // PDF.js's own editors draw the marks. When the signer leaves a document its
+                    // PDF.js's own editors draw the marks. When the signer leaves a document, its
                     // marks are saved into a marked-up copy (the original plus appended
-                    // annotations), and each copy is uploaded to the record when they approve or
-                    // decline. Under "Decline only", markups can only go with a decline; the server
-                    // enforces the same rule.
+                    // annotations), which is uploaded in the background as a draft, so little is
+                    // left to send when they approve or decline. Approving or declining submits the
+                    // drafts; clearing a document's marks withdraws its draft. Under "Decline only",
+                    // markups can only go with a decline; the server enforces the same rule.
                     var markupWired = false;
+                    var uploadQueue = Promise.resolve();
+                    var declineOnlyNoticeShown = false;
 
                     function wireMarkup() {
                         if (markupWired || markupMode === 'Off') return;
                         markupWired = true;
                         document.getElementById('markup-bar').style.display = '';
-                        document.getElementById('markup-note').textContent =
-                            markupMode === 'Decline only'
-                                ? 'Markups are sent with a decline.'
-                                : 'Markups are sent with your approval or decline.';
+                        setMarkupStatus('');
                         document.getElementById('markup-move').addEventListener('click', function () {
                             DocGenAttachmentViewer.setTool('none');
                         });
@@ -3023,6 +3253,7 @@
                             DocGenAttachmentViewer.undo();
                         });
                         document.getElementById('markup-clear').addEventListener('click', clearMarks);
+                        wireStyleMenu();
                         window.addEventListener('beforeunload', function (e) {
                             if (hasUnsavedMarks()) {
                                 e.preventDefault();
@@ -3031,20 +3262,73 @@
                         });
                     }
 
+                    // Colour and size, in a small menu like PDF.js's own viewer.
+                    function wireStyleMenu() {
+                        var btn = document.getElementById('markup-style');
+                        var menu = document.getElementById('markup-style-menu');
+                        function open(show) {
+                            menu.style.display = show ? '' : 'none';
+                            btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+                        }
+                        btn.addEventListener('click', function (e) {
+                            e.stopPropagation();
+                            open(menu.style.display === 'none');
+                        });
+                        menu.addEventListener('click', function (e) {
+                            e.stopPropagation();
+                            var t = e.target.closest ? e.target.closest('button') : null;
+                            if (!t) return;
+                            if (t.dataset.color) DocGenAttachmentViewer.setStyle({ color: t.dataset.color });
+                            if (t.dataset.thickness)
+                                DocGenAttachmentViewer.setStyle({ thickness: Number(t.dataset.thickness) });
+                            if (t.dataset.size) DocGenAttachmentViewer.setStyle({ fontSize: Number(t.dataset.size) });
+                            syncStyleMenu();
+                        });
+                        document.addEventListener('click', function () {
+                            open(false);
+                        });
+                        document.addEventListener('keydown', function (e) {
+                            if (e.key === 'Escape') open(false);
+                        });
+                        syncStyleMenu();
+                    }
+
+                    function syncStyleMenu() {
+                        var style = DocGenAttachmentViewer.style();
+                        document.getElementById('markup-swatch').style.background = style.color;
+                        var menu = document.getElementById('markup-style-menu');
+                        Array.prototype.forEach.call(menu.querySelectorAll('button'), function (b) {
+                            var on =
+                                (b.dataset.color && b.dataset.color === style.color) ||
+                                (b.dataset.thickness && Number(b.dataset.thickness) === style.thickness) ||
+                                (b.dataset.size && Number(b.dataset.size) === style.fontSize);
+                            b.classList.toggle('active', !!on);
+                        });
+                    }
+
+                    function setMarkupStatus(text) {
+                        document.getElementById('markup-note').textContent =
+                            text ||
+                            (markupMode === 'Decline only'
+                                ? 'Markups are sent with a decline.'
+                                : 'Markups are sent with your approval or decline.');
+                    }
+
                     function syncMarkupBar(z) {
                         if (markupMode === 'Off') return;
                         var tool = z && z.ready ? z.tool : 'none';
                         ['move', 'pen', 'text'].forEach(function (name) {
                             var btn = document.getElementById('markup-' + name);
-                            btn.className = 'btn' + ((name === 'move' ? 'none' : name) === tool ? ' active' : '');
+                            var on = (name === 'move' ? 'none' : name) === tool;
+                            btn.classList.toggle('active', on);
+                            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
                             btn.disabled = !(z && z.ready);
                         });
                         document.getElementById('markup-undo').disabled = !(z && z.ready && z.canUndo);
                         var a = currentDoc !== 'form' ? currentDoc : null;
-                        document.getElementById('markup-clear').disabled = !(
-                            a &&
-                            (markupBytes[a.index] || (a === shownDoc && DocGenAttachmentViewer.hasMarks()))
-                        );
+                        document.getElementById('markup-clear').disabled = !(a && isMarkedUp(a));
+                        syncDocNav();
+                        refreshActionBar();
                     }
 
                     function isMarkedUp(a) {
@@ -3070,6 +3354,11 @@
                         return attachments ? attachments.filter(isMarkedUp).length : 0;
                     }
 
+                    // Under "Decline only", marks rule out approving.
+                    function declineOnlyBlocked() {
+                        return markupMode === 'Decline only' && hasAnyMarks();
+                    }
+
                     function hasUnsavedMarks() {
                         var a = shownDoc;
                         if (a && DocGenAttachmentViewer.hasMarks() && !markupUploaded[a.index]) return true;
@@ -3078,8 +3367,29 @@
                         });
                     }
 
-                    // Save the marks on the document on show into its marked-up copy.
-                    function captureMarks() {
+                    // The action bar follows the markups: under "Decline only", once there are marks,
+                    // signing is off and Decline becomes the main action.
+                    function refreshActionBar() {
+                        refreshGuidedStatus();
+                        var decline = document.getElementById('btn-decline');
+                        var blocked = declineOnlyBlocked();
+                        decline.classList.toggle('primary', blocked);
+                        decline.textContent = blocked ? 'Decline with markups' : 'Decline';
+                        if (blocked && !declineOnlyNoticeShown) {
+                            declineOnlyNoticeShown = true;
+                            showMarkupNotice(
+                                'Markups go with a decline: approving here means approving the documents as they ' +
+                                    'are. To approve, clear your marks.'
+                            );
+                        } else if (!hasAnyMarks()) {
+                            declineOnlyNoticeShown = false;
+                            showMarkupNotice('');
+                        }
+                    }
+
+                    // Save the marks on the document on show into its marked-up copy, and start
+                    // saving that copy in the background.
+                    function captureMarks(background) {
                         var a = shownDoc;
                         if (!a || markupMode === 'Off' || !DocGenAttachmentViewer.hasMarks()) {
                             return Promise.resolve();
@@ -3088,8 +3398,37 @@
                             if (bytes) {
                                 markupBytes[a.index] = bytes;
                                 delete markupUploaded[a.index];
+                                if (background !== false) saveInBackground(a);
                             }
                         });
+                    }
+
+                    // One upload at a time; a failure here is retried when the signer finishes.
+                    var backgroundBusy = false;
+
+                    function saveInBackground(a) {
+                        uploadQueue = uploadQueue.then(function () {
+                            if (!markupBytes[a.index] || markupUploaded[a.index]) return null;
+                            backgroundBusy = true;
+                            setMarkupStatus(
+                                'Saving your markup on \u201C' + (a.title || 'this document') + '\u201D\u2026'
+                            );
+                            return uploadMarkup(a)
+                                .then(function () {
+                                    backgroundBusy = false;
+                                    setMarkupStatus('Markups saved as a draft until you approve or decline.');
+                                })
+                                .catch(function (err) {
+                                    backgroundBusy = false;
+                                    console.error('Portwood: background markup save failed', err);
+                                    setMarkupStatus(
+                                        'Your markup on \u201C' +
+                                            (a.title || 'this document') +
+                                            '\u201D isn\u2019t saved yet. It will be saved when you finish.'
+                                    );
+                                });
+                        });
+                        return uploadQueue;
                     }
 
                     var clearArmedUntil = 0;
@@ -3097,68 +3436,146 @@
                     function clearMarks() {
                         var a = currentDoc !== 'form' ? currentDoc : null;
                         if (!a) return;
-                        var btn = document.getElementById('markup-clear');
+                        var label = document.getElementById('markup-clear-label');
                         if (Date.now() > clearArmedUntil) {
                             // First click arms the button; a second click within 4 s clears.
                             clearArmedUntil = Date.now() + 4000;
-                            btn.textContent = 'Click again to remove';
+                            label.textContent = 'Click again to remove';
                             setTimeout(function () {
-                                if (Date.now() >= clearArmedUntil) btn.textContent = 'Clear my marks';
+                                if (Date.now() >= clearArmedUntil) label.textContent = 'Clear my marks';
                             }, 4100);
                             return;
                         }
                         clearArmedUntil = 0;
-                        btn.textContent = 'Clear my marks';
-                        showMarkupNotice('');
+                        label.textContent = 'Clear my marks';
                         delete markupBytes[a.index];
                         delete markupUploaded[a.index];
+                        var hadDraft = !!a.markedUpAt;
+                        a.markedUpAt = null;
                         loadAttachment(a); // the original, without marks
+                        if (hadDraft) {
+                            // Withdraw the saved draft too (after any upload still in flight).
+                            uploadQueue = uploadQueue.then(function () {
+                                return withdrawMarkup(a).catch(function (err) {
+                                    a.markedUpAt = a.markedUpAt || new Date().toISOString();
+                                    setMarkupStatus(
+                                        err && err.userMessage
+                                            ? err.userMessage
+                                            : 'Your saved markup could not be removed.'
+                                    );
+                                    syncDocNav();
+                                    refreshActionBar();
+                                });
+                            });
+                        }
                         syncDocNav();
+                        refreshActionBar();
                     }
 
-                    // Upload every marked-up copy not yet saved, one at a time.
-                    function uploadMarkups() {
+                    // Before approving or declining: finish every upload. report(a, n, of) is told
+                    // before each remaining upload, for a progress line; report(null) while a
+                    // background save already on its way finishes.
+                    function uploadMarkups(report) {
                         if (markupMode === 'Off' || !hasAttachments()) return Promise.resolve();
-                        return captureMarks().then(function () {
-                            return attachments
-                                .filter(function (a) {
+                        return captureMarks(false)
+                            .then(function () {
+                                if (backgroundBusy && report) report(null, 0, 0); // one already on its way
+                                return uploadQueue;
+                            })
+                            .then(function () {
+                                var todo = attachments.filter(function (a) {
                                     return markupBytes[a.index] && !markupUploaded[a.index];
-                                })
-                                .reduce(function (chain, a) {
+                                });
+                                return todo.reduce(function (chain, a, i) {
                                     return chain.then(function () {
+                                        if (report) report(a, i + 1, todo.length);
                                         return uploadMarkup(a);
                                     });
                                 }, Promise.resolve());
-                        });
+                            });
                     }
 
                     function uploadMarkup(a) {
-                        return fetch(attachmentEndpoint + '?index=' + encodeURIComponent(a.index), {
-                            method: 'POST',
-                            headers: { 'X-Portwood-Token': token, 'Content-Type': 'application/pdf' },
-                            body: markupBytes[a.index],
+                        var sending = markupBytes[a.index];
+                        return markupRequest(a, 'POST', sending).then(function () {
+                            // Only the copy actually sent counts as saved; newer marks go next time.
+                            if (markupBytes[a.index] === sending) markupUploaded[a.index] = true;
+                            a.markedUpAt = new Date().toISOString();
+                            syncDocNav();
+                        });
+                    }
+
+                    function withdrawMarkup(a) {
+                        return markupRequest(a, 'DELETE', null);
+                    }
+
+                    function markupRequest(a, method, body) {
+                        var init = {
+                            method: method,
+                            headers: { 'X-Portwood-Token': token },
+                            cache: 'no-store',
+                            credentials: 'same-origin'
+                        };
+                        if (body) {
+                            init.headers['Content-Type'] = 'application/pdf';
+                            init.body = body;
+                        }
+                        return fetch(attachmentEndpoint + '?index=' + encodeURIComponent(a.index), init).then(
+                            function (res) {
+                                return res
+                                    .json()
+                                    .catch(function () {
+                                        return {};
+                                    })
+                                    .then(function (json) {
+                                        if (!res.ok) {
+                                            throw userError(
+                                                (json && json.error) ||
+                                                    'Your markup on \u201C' +
+                                                        (a.title || 'a document') +
+                                                        '\u201D could not be saved (error ' +
+                                                        res.status +
+                                                        ').'
+                                            );
+                                        }
+                                        return json;
+                                    });
+                            }
+                        );
+                    }
+
+                    // The signer's saved markup (after a reload), checked against the server's
+                    // fingerprint. Kept as this session's copy: it is already saved.
+                    function fetchSavedMarkup(a, onProgress) {
+                        return fetch(attachmentEndpoint + '?index=' + encodeURIComponent(a.index) + '&markup=1', {
+                            method: 'GET',
+                            headers: { 'X-Portwood-Token': token },
                             cache: 'no-store',
                             credentials: 'same-origin'
                         }).then(function (res) {
-                            return res
-                                .json()
-                                .catch(function () {
-                                    return {};
-                                })
-                                .then(function (body) {
-                                    if (!res.ok) {
-                                        throw userError(
-                                            (body && body.error) ||
-                                                'Your markup on "' +
-                                                    (a.title || 'a document') +
-                                                    '" could not be saved (error ' +
-                                                    res.status +
-                                                    ').'
-                                        );
+                            if (!res.ok) return fetchAttachmentBytes(a, onProgress); // fall back to the original
+                            var serverSha = (res.headers.get('X-Portwood-Sha256') || '').toLowerCase();
+                            return readAll(res, null, onProgress).then(function (bytes) {
+                                return sha256Hex(bytes).then(function (hex) {
+                                    if (serverSha && hex && serverSha !== hex) {
+                                        throw userError('Your saved markup did not arrive intact. Please try again.');
                                     }
+                                    markupBytes[a.index] = bytes;
                                     markupUploaded[a.index] = true;
-                                    a.markedUpAt = new Date().toISOString();
+                                    return bytes;
                                 });
+                            });
+                        });
+                    }
+
+                    function sha256Hex(bytes) {
+                        if (!window.crypto || !window.crypto.subtle) return Promise.resolve(null);
+                        return window.crypto.subtle.digest('SHA-256', bytes).then(function (digest) {
+                            return Array.prototype.map
+                                .call(new Uint8Array(digest), function (b) {
+                                    return ('0' + b.toString(16)).slice(-2);
+                                })
+                                .join('');
                         });
                     }
 
@@ -3337,6 +3754,7 @@
                         spots.forEach(function (spot) {
                             spot.chip.addEventListener('click', function () {
                                 if (spot.signed) return;
+                                if (!requireAttachmentsOpened() || declineOnlyBlocked()) return;
                                 ensureFormFieldsThen(function () {
                                     openPlacementCapture(spot);
                                 });
@@ -3409,10 +3827,16 @@
                             guided.spots[i].chip.classList.remove('current');
                         }
                         var unopened = unopenedAttachments().length;
-                        if (pending < 0 && unopened) {
-                            // #412 — every field is done, but not every attached document is open.
+                        btn.disabled = false;
+                        if (declineOnlyBlocked()) {
+                            // #412 M2 — under "Decline only", markups rule out approving.
+                            btn.textContent = 'Clear your marks to approve';
+                            btn.disabled = true;
+                        } else if (unopened) {
+                            // #412 — the signer reviews every attached document before signing,
+                            // whichever side of the form they sit on.
                             btn.textContent =
-                                'Open attached document' + (unopened === 1 ? '' : 's') + ' (' + unopened + ' left)';
+                                'Review attached document' + (unopened === 1 ? '' : 's') + ' (' + unopened + ' left)';
                         } else if (pending < 0) {
                             btn.textContent = 'Finish & Submit';
                         } else {
@@ -3431,6 +3855,14 @@
                     //     before acting — deliberate path. They click the chip or "Next Field" next.
                     function advanceGuided(openNext) {
                         if (!guided) return;
+                        // #412 — review every attached document before signing anything; under
+                        // "Decline only", markups rule out approving.
+                        if (!requireAttachmentsOpened()) return;
+                        if (declineOnlyBlocked()) {
+                            closeSignModal();
+                            refreshActionBar();
+                            return;
+                        }
                         // #412 — the walk happens on the signing document.
                         if (currentDoc !== 'form' && firstPendingIndex() >= 0) showDocument('form');
                         // Form fields first — collect them before the signer signs anything.
@@ -4068,7 +4500,22 @@
                                 return '';
                             }
                         })();
-                        return uploadMarkups()
+                        return uploadMarkups(function (a, n, of) {
+                            if (!a) {
+                                showModalMsg('Saving your markups\u2026 Please keep this page open.', 'info');
+                                return;
+                            }
+                            showModalMsg(
+                                'Saving your markup on \u201C' +
+                                    escapeHtml(a.title || 'a document') +
+                                    '\u201D (' +
+                                    n +
+                                    ' of ' +
+                                    of +
+                                    ')\u2026 Please keep this page open.',
+                                'info'
+                            );
+                        })
                             .then(confirmAttachmentsReviewed)
                             .then(getCertificateData)
                             .then(function (cert) {
@@ -5194,8 +5641,25 @@
                         var ua = navigator.userAgent || 'Unknown';
                         // #412 M2 — the markups are saved to the record before the decline.
                         document.getElementById('decline-markup-error').style.display = 'none';
-                        uploadMarkups()
+                        var note = document.getElementById('decline-markup-note');
+                        uploadMarkups(function (a, n, of) {
+                            btn.textContent = 'Saving markups\u2026';
+                            note.style.display = '';
+                            if (!a) {
+                                note.textContent = 'Saving your markups\u2026 Please keep this page open.';
+                                return;
+                            }
+                            note.textContent =
+                                'Saving your markup on \u201C' +
+                                (a.title || 'a document') +
+                                '\u201D (' +
+                                n +
+                                ' of ' +
+                                of +
+                                ')\u2026 Please keep this page open.';
+                        })
                             .then(function () {
+                                btn.textContent = 'Declining...';
                                 sendDecline(reason, btn, ua);
                             })
                             .catch(function (err) {
