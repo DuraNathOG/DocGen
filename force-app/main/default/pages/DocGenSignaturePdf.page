@@ -906,6 +906,8 @@
                             role="status"
                             aria-live="polite"
                         ></div>
+                        <!-- #412 M2 — why an approval with markups was stopped -->
+                        <div id="markup-notice" class="doc-status pending" style="display: none" role="alert"></div>
 
                         <!-- DocGenPdfViewer.render() renders into this container. -->
                         <div class="pdf-viewer" id="pdf-viewer-container">
@@ -993,6 +995,12 @@
                         <h2 style="color: #ea001e">Decline Signature</h2>
                         <p class="subtitle">Are you sure you want to decline this signature request?</p>
                         <p id="decline-markup-note" class="subtitle" style="display: none"></p>
+                        <p
+                            id="decline-markup-error"
+                            class="subtitle"
+                            style="display: none; color: #ea001e"
+                            role="alert"
+                        ></p>
                         <div class="form-group">
                             <label for="decline-reason">Reason (optional)</label>
                             <textarea
@@ -1824,6 +1832,25 @@
                         st.pending = 1;
                     }
 
+                    // #412 M2 — a red pen and red text, so markups stand out from the drawing.
+                    function applyToolParams(st) {
+                        var params = st.core.AnnotationEditorParamsType;
+                        var set = function (type, value) {
+                            st.eventBus.dispatch('switchannotationeditorparams', {
+                                source: null,
+                                type: type,
+                                value: value
+                            });
+                        };
+                        if (st.tool === 'pen') {
+                            set(params.INK_COLOR, '#d0021b');
+                            set(params.INK_THICKNESS, 3);
+                        } else if (st.tool === 'text') {
+                            set(params.FREETEXT_COLOR, '#d0021b');
+                            set(params.FREETEXT_SIZE, 14);
+                        }
+                    }
+
                     function boxCentre(st) {
                         var r = st.scroller.getBoundingClientRect();
                         return [r.left + r.width / 2, r.top + r.height / 2];
@@ -2040,6 +2067,15 @@
                                                 st.editor = e.details;
                                                 notify(st);
                                             });
+                                            // The editors register once the mode switch completes, so
+                                            // the pen and text settings are sent then, not before.
+                                            eventBus.on('annotationeditormodechanged', function () {
+                                                applyToolParams(st);
+                                            });
+                                            // The first mark enables Clear.
+                                            pdf.annotationStorage.onSetModified = function () {
+                                                notify(st);
+                                            };
                                             eventBus.on('scalechanging', function (e) {
                                                 st.fitMode = e.presetValue === 'page-width';
                                                 if (st.fitMode) {
@@ -2102,26 +2138,12 @@
                                 return;
                             }
                             var types = st.core.AnnotationEditorType;
-                            var params = st.core.AnnotationEditorParamsType;
                             var mode = tool === 'pen' ? types.INK : tool === 'text' ? types.FREETEXT : types.NONE;
+                            st.tool = tool; // before the switch: its event reads it
                             st.viewer.annotationEditorMode = { mode: mode };
-                            st.tool = tool;
                             st.scroller.classList.toggle('dg-marking', tool !== 'none');
                             st.scroller.classList.toggle('dg-pen', tool === 'pen');
-                            var set = function (type, value) {
-                                st.eventBus.dispatch('switchannotationeditorparams', {
-                                    source: null,
-                                    type: type,
-                                    value: value
-                                });
-                            };
-                            if (tool === 'pen') {
-                                set(params.INK_COLOR, '#d0021b');
-                                set(params.INK_THICKNESS, 3);
-                            } else if (tool === 'text') {
-                                set(params.FREETEXT_COLOR, '#d0021b');
-                                set(params.FREETEXT_SIZE, 14);
-                            }
+                            applyToolParams(st); // when the mode is unchanged (no event)
                             notify(st);
                         },
 
@@ -2488,6 +2510,7 @@
                     var markupMode = 'Off'; // Off / Decline only / Approve or decline
                     var markupBytes = {};
                     var markupUploaded = {};
+                    var shownDoc = null; // the attachment the viewer is showing (null while loading)
                     var ATTACHMENT_CACHE_BYTES = 48 * 1024 * 1024;
                     var formRendered = (function () {
                         var done;
@@ -2699,6 +2722,7 @@
                         syncDocNav();
                         if (entry === 'form') {
                             attachmentLoadGen++;
+                            shownDoc = null;
                             DocGenAttachmentViewer.release(attEl);
                             pane.style.display = 'none';
                             formEl.style.display = '';
@@ -2768,6 +2792,7 @@
 
                     function loadAttachment(a) {
                         var gen = ++attachmentLoadGen;
+                        shownDoc = null;
                         var el = document.getElementById('attachment-viewer-container');
                         setAttachmentMeta(a);
                         DocGenAttachmentViewer.release();
@@ -2794,8 +2819,10 @@
                                     el,
                                     function (pageCount) {
                                         if (gen !== attachmentLoadGen) return;
+                                        shownDoc = a;
                                         setAttachmentMeta(a, pageCount);
                                         recordAttachmentOpened(a, 0);
+                                        syncDocNav();
                                     },
                                     syncZoomControls,
                                     { markup: markupMode !== 'Off' }
@@ -3016,7 +3043,7 @@
                         var a = currentDoc !== 'form' ? currentDoc : null;
                         document.getElementById('markup-clear').disabled = !(
                             a &&
-                            (markupBytes[a.index] || DocGenAttachmentViewer.hasMarks())
+                            (markupBytes[a.index] || (a === shownDoc && DocGenAttachmentViewer.hasMarks()))
                         );
                     }
 
@@ -3025,8 +3052,14 @@
                             a &&
                             (markupBytes[a.index] ||
                                 a.markedUpAt ||
-                                (a === currentDoc && DocGenAttachmentViewer.hasMarks()))
+                                (a === shownDoc && DocGenAttachmentViewer.hasMarks()))
                         );
+                    }
+
+                    function showMarkupNotice(text) {
+                        var el = document.getElementById('markup-notice');
+                        el.textContent = text || '';
+                        el.style.display = text ? '' : 'none';
                     }
 
                     function hasAnyMarks() {
@@ -3038,7 +3071,7 @@
                     }
 
                     function hasUnsavedMarks() {
-                        var a = currentDoc !== 'form' ? currentDoc : null;
+                        var a = shownDoc;
                         if (a && DocGenAttachmentViewer.hasMarks() && !markupUploaded[a.index]) return true;
                         return Object.keys(markupBytes).some(function (index) {
                             return !markupUploaded[index];
@@ -3047,7 +3080,7 @@
 
                     // Save the marks on the document on show into its marked-up copy.
                     function captureMarks() {
-                        var a = currentDoc !== 'form' ? currentDoc : null;
+                        var a = shownDoc;
                         if (!a || markupMode === 'Off' || !DocGenAttachmentViewer.hasMarks()) {
                             return Promise.resolve();
                         }
@@ -3059,9 +3092,24 @@
                         });
                     }
 
+                    var clearArmedUntil = 0;
+
                     function clearMarks() {
                         var a = currentDoc !== 'form' ? currentDoc : null;
-                        if (!a || !window.confirm('Remove your markups from this document?')) return;
+                        if (!a) return;
+                        var btn = document.getElementById('markup-clear');
+                        if (Date.now() > clearArmedUntil) {
+                            // First click arms the button; a second click within 4 s clears.
+                            clearArmedUntil = Date.now() + 4000;
+                            btn.textContent = 'Click again to remove';
+                            setTimeout(function () {
+                                if (Date.now() >= clearArmedUntil) btn.textContent = 'Clear my marks';
+                            }, 4100);
+                            return;
+                        }
+                        clearArmedUntil = 0;
+                        btn.textContent = 'Clear my marks';
+                        showMarkupNotice('');
                         delete markupBytes[a.index];
                         delete markupUploaded[a.index];
                         loadAttachment(a); // the original, without marks
@@ -4500,13 +4548,14 @@
                         if (!requireAttachmentsOpened()) return;
                         // #412 M2 — under "Decline only", approving means approved as-is.
                         if (markupMode === 'Decline only' && hasAnyMarks()) {
-                            window.alert(
+                            showMarkupNotice(
                                 'Your markups can only be sent with a decline: approving here means approving the ' +
                                     'documents as they are. To send your markups, choose Decline. To approve, clear ' +
                                     'your marks first.'
                             );
                             return;
                         }
+                        showMarkupNotice('');
                         modalMode = 'final';
                         activeSpot = null;
                         document.getElementById('modal-draw-group').style.display = 'none';
@@ -5144,6 +5193,7 @@
 
                         var ua = navigator.userAgent || 'Unknown';
                         // #412 M2 — the markups are saved to the record before the decline.
+                        document.getElementById('decline-markup-error').style.display = 'none';
                         uploadMarkups()
                             .then(function () {
                                 sendDecline(reason, btn, ua);
@@ -5151,11 +5201,12 @@
                             .catch(function (err) {
                                 btn.disabled = false;
                                 btn.textContent = 'Confirm Decline';
-                                window.alert(
+                                var errEl = document.getElementById('decline-markup-error');
+                                errEl.textContent =
                                     err && err.userMessage
                                         ? err.userMessage
-                                        : 'Your markups could not be saved. Please try again.'
-                                );
+                                        : 'Your markups could not be saved. Please try again.';
+                                errEl.style.display = '';
                             });
                     }
 
