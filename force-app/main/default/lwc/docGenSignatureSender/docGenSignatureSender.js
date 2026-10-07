@@ -262,9 +262,12 @@ export default class DocGenSignatureSender extends NavigationMixin(LightningElem
     get oversizeAttachmentNote() {
         const n = this.attachablePdfs.filter((f) => f.tooLarge).length;
         if (!n) return null;
+        // The per-file limit is set in Signature Settings; the server reports it with each file.
+        const maxBytes = this.attachablePdfs[0].maxBytes;
+        const limit = maxBytes ? 'over ' + Math.round(maxBytes / (1024 * 1024)) + ' MB' : 'over the size limit';
         return n === 1
-            ? '1 PDF on this record is over 20 MB and cannot be attached.'
-            : n + ' PDFs on this record are over 20 MB and cannot be attached.';
+            ? '1 PDF on this record is ' + limit + ' and cannot be attached.'
+            : n + ' PDFs on this record are ' + limit + ' and cannot be attached.';
     }
 
     get hasSelectedAttachments() {
