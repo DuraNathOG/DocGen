@@ -717,6 +717,39 @@
                 .dg-att-scroller .pdfViewer {
                     padding: 8px 0;
                 }
+                /* #412 M2 — markup tools. In pen mode one finger draws, so the box stops panning
+                   natively; two-finger pinch still zooms. */
+                .dg-att-scroller.dg-marking {
+                    cursor: crosshair;
+                }
+                .dg-att-scroller.dg-pen {
+                    touch-action: none;
+                }
+                .markup-bar {
+                    background: #fef1e8;
+                    border-bottom: 1px solid #f4bc8e;
+                    color: #3e3e3c;
+                    display: flex;
+                    align-items: center;
+                    flex-wrap: wrap;
+                    gap: 0.5rem;
+                    padding: 0.35rem 1rem;
+                    font-size: 0.8125rem;
+                    flex-shrink: 0;
+                }
+                .markup-bar .btn {
+                    padding: 0.2rem 0.65rem;
+                    font-size: 0.8125rem;
+                }
+                .markup-bar .btn.active {
+                    background: #0176d3;
+                    border-color: #0176d3;
+                    color: #fff;
+                }
+                .markup-note {
+                    color: #706e6b;
+                    font-size: 0.75rem;
+                }
                 .attachment-viewer .attachment-message {
                     color: #fff;
                     text-align: center;
@@ -899,6 +932,18 @@
                                     +
                                 </button>
                             </div>
+                            <!-- #412 M2 — shown when the template allows markup -->
+                            <div id="markup-bar" class="markup-bar" style="display: none">
+                                <strong>Mark up:</strong>
+                                <button id="markup-move" class="btn active" type="button">Move</button>
+                                <button id="markup-pen" class="btn" type="button">Pen</button>
+                                <button id="markup-text" class="btn" type="button">Text</button>
+                                <button id="markup-undo" class="btn" type="button" disabled="disabled">Undo</button>
+                                <button id="markup-clear" class="btn" type="button" disabled="disabled">
+                                    Clear my marks
+                                </button>
+                                <span id="markup-note" class="markup-note"></span>
+                            </div>
                             <div class="pdf-viewer attachment-viewer" id="attachment-viewer-container"></div>
                         </div>
 
@@ -947,6 +992,7 @@
                     <div class="sig-card" style="max-width: 480px">
                         <h2 style="color: #ea001e">Decline Signature</h2>
                         <p class="subtitle">Are you sure you want to decline this signature request?</p>
+                        <p id="decline-markup-note" class="subtitle" style="display: none"></p>
                         <div class="form-group">
                             <label for="decline-reason">Reason (optional)</label>
                             <textarea
@@ -1850,8 +1896,8 @@
 
                         // Mouse drag-to-pan (the hand tool). Touch already pans natively.
                         scroller.addEventListener('pointerdown', function (e) {
-                            if (e.pointerType !== 'mouse' || e.button !== 0) {
-                                return;
+                            if (e.pointerType !== 'mouse' || e.button !== 0 || st.tool !== 'none') {
+                                return; // a markup tool has the pointer
                             }
                             if (e.target.closest && e.target.closest('a, button, input, select, textarea')) {
                                 return;
@@ -1911,7 +1957,10 @@
                             fit: st.fitMode,
                             percent: Math.round((scale / st.fitScale) * 100),
                             canZoomIn: scale < 9.99,
-                            canZoomOut: scale > st.fitScale * MIN_FIT_FRACTION + 0.005
+                            canZoomOut: scale > st.fitScale * MIN_FIT_FRACTION + 0.005,
+                            markup: st.markup,
+                            tool: st.tool,
+                            canUndo: !!(st.editor && st.editor.hasSomethingToUndo)
                         };
                     }
 
@@ -1920,7 +1969,9 @@
                         // onFirstPage(pageCount) fires once the first page is on screen;
                         // onChange(state) fires whenever the zoom changes. Resolves
                         // { pageCount, completed } — completed=false when superseded.
-                        render: function (bytes, containerEl, onFirstPage, onChange) {
+                        // opts.markup turns on PDF.js's annotation editors (pen, text) for M2.
+                        render: function (bytes, containerEl, onFirstPage, onChange, opts) {
+                            var markup = !!(opts && opts.markup);
                             release(containerEl);
                             var myGen = gen;
                             // PDF.js transfers the buffer to its worker; hand it a copy so the
@@ -1953,7 +2004,9 @@
                                             linkService: linkService,
                                             textLayerMode: 0, // nothing to select; keeps drag-to-pan unambiguous
                                             annotationMode: l.core.AnnotationMode.ENABLE, // show existing markups; no forms
-                                            annotationEditorMode: l.core.AnnotationEditorType.DISABLE, // markup is M2
+                                            annotationEditorMode: markup
+                                                ? l.core.AnnotationEditorType.NONE
+                                                : l.core.AnnotationEditorType.DISABLE,
                                             maxCanvasPixels: MAX_CANVAS_PIXELS
                                         });
                                         linkService.setViewer(viewer);
@@ -1967,7 +2020,12 @@
                                             pending: 1,
                                             pinch: null,
                                             drag: null,
-                                            onChange: onChange
+                                            onChange: onChange,
+                                            markup: markup,
+                                            tool: 'none',
+                                            editor: null, // PDF.js's editor state (undo, empty)
+                                            eventBus: eventBus,
+                                            core: l.core
                                         };
                                         current = st;
                                         wireInput(st);
@@ -1977,6 +2035,10 @@
                                             var first = true;
                                             eventBus.on('pagesinit', function () {
                                                 viewer.currentScaleValue = 'page-width';
+                                            });
+                                            eventBus.on('annotationeditorstateschanged', function (e) {
+                                                st.editor = e.details;
+                                                notify(st);
                                             });
                                             eventBus.on('scalechanging', function (e) {
                                                 st.fitMode = e.presetValue === 'page-width';
@@ -2029,8 +2091,56 @@
                             }
                         },
 
-                        // { ready, fit, percent (of fit-to-width), canZoomIn, canZoomOut }
-                        state: state
+                        // { ready, fit, percent (of fit-to-width), canZoomIn, canZoomOut, markup, tool, canUndo }
+                        state: state,
+
+                        // #412 M2 — 'none' (move), 'pen' or 'text'. PDF.js's own editors do the
+                        // drawing; this only switches them and sets a red pen and red text.
+                        setTool: function (tool) {
+                            var st = current;
+                            if (!st || !st.markup) {
+                                return;
+                            }
+                            var types = st.core.AnnotationEditorType;
+                            var params = st.core.AnnotationEditorParamsType;
+                            var mode = tool === 'pen' ? types.INK : tool === 'text' ? types.FREETEXT : types.NONE;
+                            st.viewer.annotationEditorMode = { mode: mode };
+                            st.tool = tool;
+                            st.scroller.classList.toggle('dg-marking', tool !== 'none');
+                            st.scroller.classList.toggle('dg-pen', tool === 'pen');
+                            var set = function (type, value) {
+                                st.eventBus.dispatch('switchannotationeditorparams', {
+                                    source: null,
+                                    type: type,
+                                    value: value
+                                });
+                            };
+                            if (tool === 'pen') {
+                                set(params.INK_COLOR, '#d0021b');
+                                set(params.INK_THICKNESS, 3);
+                            } else if (tool === 'text') {
+                                set(params.FREETEXT_COLOR, '#d0021b');
+                                set(params.FREETEXT_SIZE, 14);
+                            }
+                            notify(st);
+                        },
+
+                        undo: function () {
+                            if (current && current.markup) {
+                                current.eventBus.dispatch('editingaction', { source: null, name: 'undo' });
+                            }
+                        },
+
+                        // Marks made on the document on show, not yet saved into its bytes.
+                        hasMarks: function () {
+                            return !!(current && current.markup && current.pdf.annotationStorage.size > 0);
+                        },
+
+                        // The document on show with its marks, as PDF.js saves it: the loaded bytes
+                        // unchanged, with the annotations appended (an incremental update).
+                        markedBytes: function () {
+                            return current ? current.pdf.saveDocument() : Promise.resolve(null);
+                        }
                     };
                 })();
             </script>
@@ -2303,6 +2413,16 @@
                             document.getElementById('btn-decline').style.display = 'none';
                         }
                         document.getElementById('btn-decline').addEventListener('click', function () {
+                            // #412 M2 — say what happens to the signer's markups.
+                            var note = document.getElementById('decline-markup-note');
+                            var n = markupMode !== 'Off' ? markedUpCount() : 0;
+                            note.style.display = n ? '' : 'none';
+                            note.textContent = n
+                                ? 'Your markups on ' +
+                                  n +
+                                  (n === 1 ? ' document' : ' documents') +
+                                  ' will be saved to the record with your decline.'
+                                : '';
                             showState('decline');
                         });
                         document.getElementById('btn-decline-cancel').addEventListener('click', function () {
@@ -2362,6 +2482,12 @@
                     var currentDoc = 'form';
                     var attachmentLoadGen = 0;
                     var attachmentCache = []; // [{index, bytes}], most recent last
+                    // #412 M2 — markup. markupBytes[index] is this signer's marked-up copy (the
+                    // original plus their annotations), captured when they leave the document;
+                    // markupUploaded[index] once that copy is saved to the record.
+                    var markupMode = 'Off'; // Off / Decline only / Approve or decline
+                    var markupBytes = {};
+                    var markupUploaded = {};
                     var ATTACHMENT_CACHE_BYTES = 48 * 1024 * 1024;
                     var formRendered = (function () {
                         var done;
@@ -2414,6 +2540,8 @@
                             .then(function (result) {
                                 attachments = result.attachments || [];
                                 attachmentEndpoint = result.endpoint;
+                                markupMode = result.markup || 'Off';
+                                wireMarkup();
                                 if (!attachments.length) return;
                                 var before = [];
                                 var after = [];
@@ -2456,7 +2584,8 @@
                             attachments.length +
                             ': ' +
                             (entry.title || 'Document') +
-                            (entry.version ? ' (v' + entry.version + ')' : '')
+                            (entry.version ? ' (v' + entry.version + ')' : '') +
+                            (isMarkedUp(entry) ? ' \u270E' : '')
                         );
                     }
 
@@ -2553,6 +2682,16 @@
 
                     function showDocument(entry) {
                         if (docOrder.indexOf(entry) < 0) return;
+                        captureMarks()
+                            .catch(function (err) {
+                                console.error('Portwood: could not keep the markups on this document', err);
+                            })
+                            .then(function () {
+                                switchDocument(entry);
+                            });
+                    }
+
+                    function switchDocument(entry) {
                         currentDoc = entry;
                         var formEl = document.getElementById('pdf-viewer-container');
                         var pane = document.getElementById('attachment-pane');
@@ -2587,6 +2726,7 @@
                         label.disabled = !z.ready || z.fit;
                         document.getElementById('att-zoom-out').disabled = !z.ready || !z.canZoomOut;
                         document.getElementById('att-zoom-in').disabled = !z.ready || !z.canZoomIn;
+                        syncMarkupBar(z);
                     }
 
                     function stepZoom(delta) {
@@ -2640,9 +2780,13 @@
                             false,
                             true
                         );
-                        fetchAttachmentBytes(a, function (loaded, total) {
-                            if (bar && total) bar.style.width = Math.min(100, Math.round((loaded / total) * 100)) + '%';
-                        })
+                        var source = markupBytes[a.index]
+                            ? Promise.resolve(markupBytes[a.index])
+                            : fetchAttachmentBytes(a, function (loaded, total) {
+                                  if (bar && total)
+                                      bar.style.width = Math.min(100, Math.round((loaded / total) * 100)) + '%';
+                              });
+                        source
                             .then(function (bytes) {
                                 if (gen !== attachmentLoadGen) return null;
                                 return DocGenAttachmentViewer.render(
@@ -2653,7 +2797,8 @@
                                         setAttachmentMeta(a, pageCount);
                                         recordAttachmentOpened(a, 0);
                                     },
-                                    syncZoomControls
+                                    syncZoomControls,
+                                    { markup: markupMode !== 'Off' }
                                 );
                             })
                             .then(function () {
@@ -2820,6 +2965,153 @@
                             },
                             { escape: false }
                         );
+                    }
+
+                    // ===== #412 M2 MARKUP =====
+                    // PDF.js's own editors draw the marks. When the signer leaves a document its
+                    // marks are saved into a marked-up copy (the original plus appended
+                    // annotations), and each copy is uploaded to the record when they approve or
+                    // decline. Under "Decline only", markups can only go with a decline; the server
+                    // enforces the same rule.
+                    var markupWired = false;
+
+                    function wireMarkup() {
+                        if (markupWired || markupMode === 'Off') return;
+                        markupWired = true;
+                        document.getElementById('markup-bar').style.display = '';
+                        document.getElementById('markup-note').textContent =
+                            markupMode === 'Decline only'
+                                ? 'Markups are sent with a decline.'
+                                : 'Markups are sent with your approval or decline.';
+                        document.getElementById('markup-move').addEventListener('click', function () {
+                            DocGenAttachmentViewer.setTool('none');
+                        });
+                        document.getElementById('markup-pen').addEventListener('click', function () {
+                            DocGenAttachmentViewer.setTool('pen');
+                        });
+                        document.getElementById('markup-text').addEventListener('click', function () {
+                            DocGenAttachmentViewer.setTool('text');
+                        });
+                        document.getElementById('markup-undo').addEventListener('click', function () {
+                            DocGenAttachmentViewer.undo();
+                        });
+                        document.getElementById('markup-clear').addEventListener('click', clearMarks);
+                        window.addEventListener('beforeunload', function (e) {
+                            if (hasUnsavedMarks()) {
+                                e.preventDefault();
+                                e.returnValue = '';
+                            }
+                        });
+                    }
+
+                    function syncMarkupBar(z) {
+                        if (markupMode === 'Off') return;
+                        var tool = z && z.ready ? z.tool : 'none';
+                        ['move', 'pen', 'text'].forEach(function (name) {
+                            var btn = document.getElementById('markup-' + name);
+                            btn.className = 'btn' + ((name === 'move' ? 'none' : name) === tool ? ' active' : '');
+                            btn.disabled = !(z && z.ready);
+                        });
+                        document.getElementById('markup-undo').disabled = !(z && z.ready && z.canUndo);
+                        var a = currentDoc !== 'form' ? currentDoc : null;
+                        document.getElementById('markup-clear').disabled = !(
+                            a &&
+                            (markupBytes[a.index] || DocGenAttachmentViewer.hasMarks())
+                        );
+                    }
+
+                    function isMarkedUp(a) {
+                        return !!(
+                            a &&
+                            (markupBytes[a.index] ||
+                                a.markedUpAt ||
+                                (a === currentDoc && DocGenAttachmentViewer.hasMarks()))
+                        );
+                    }
+
+                    function hasAnyMarks() {
+                        return !!(attachments && attachments.some(isMarkedUp));
+                    }
+
+                    function markedUpCount() {
+                        return attachments ? attachments.filter(isMarkedUp).length : 0;
+                    }
+
+                    function hasUnsavedMarks() {
+                        var a = currentDoc !== 'form' ? currentDoc : null;
+                        if (a && DocGenAttachmentViewer.hasMarks() && !markupUploaded[a.index]) return true;
+                        return Object.keys(markupBytes).some(function (index) {
+                            return !markupUploaded[index];
+                        });
+                    }
+
+                    // Save the marks on the document on show into its marked-up copy.
+                    function captureMarks() {
+                        var a = currentDoc !== 'form' ? currentDoc : null;
+                        if (!a || markupMode === 'Off' || !DocGenAttachmentViewer.hasMarks()) {
+                            return Promise.resolve();
+                        }
+                        return DocGenAttachmentViewer.markedBytes().then(function (bytes) {
+                            if (bytes) {
+                                markupBytes[a.index] = bytes;
+                                delete markupUploaded[a.index];
+                            }
+                        });
+                    }
+
+                    function clearMarks() {
+                        var a = currentDoc !== 'form' ? currentDoc : null;
+                        if (!a || !window.confirm('Remove your markups from this document?')) return;
+                        delete markupBytes[a.index];
+                        delete markupUploaded[a.index];
+                        loadAttachment(a); // the original, without marks
+                        syncDocNav();
+                    }
+
+                    // Upload every marked-up copy not yet saved, one at a time.
+                    function uploadMarkups() {
+                        if (markupMode === 'Off' || !hasAttachments()) return Promise.resolve();
+                        return captureMarks().then(function () {
+                            return attachments
+                                .filter(function (a) {
+                                    return markupBytes[a.index] && !markupUploaded[a.index];
+                                })
+                                .reduce(function (chain, a) {
+                                    return chain.then(function () {
+                                        return uploadMarkup(a);
+                                    });
+                                }, Promise.resolve());
+                        });
+                    }
+
+                    function uploadMarkup(a) {
+                        return fetch(attachmentEndpoint + '?index=' + encodeURIComponent(a.index), {
+                            method: 'POST',
+                            headers: { 'X-Portwood-Token': token, 'Content-Type': 'application/pdf' },
+                            body: markupBytes[a.index],
+                            cache: 'no-store',
+                            credentials: 'same-origin'
+                        }).then(function (res) {
+                            return res
+                                .json()
+                                .catch(function () {
+                                    return {};
+                                })
+                                .then(function (body) {
+                                    if (!res.ok) {
+                                        throw userError(
+                                            (body && body.error) ||
+                                                'Your markup on "' +
+                                                    (a.title || 'a document') +
+                                                    '" could not be saved (error ' +
+                                                    res.status +
+                                                    ').'
+                                        );
+                                    }
+                                    markupUploaded[a.index] = true;
+                                    a.markedUpAt = new Date().toISOString();
+                                });
+                        });
                     }
 
                     // Approve gate (UI side): send the signer to the first unopened attachment.
@@ -3429,7 +3721,8 @@
                         for (var i = 0; i < list.length; i++) {
                             var a = list[i];
                             var opened = a.openedBy || [];
-                            var need = 52 + Math.max(1, opened.length) * 12;
+                            var markedUp = a.markedUpBy || [];
+                            var need = 52 + Math.max(1, opened.length) * 12 + markedUp.length * 24;
                             if (y - need < 60) newPage(true);
                             y = drawWrappedText(page, winAnsi(i + 1 + '. ' + (a.title || 'Document')), {
                                 x: CERT_LEFT,
@@ -3479,6 +3772,28 @@
                                     ),
                                     { x: CERT_LEFT + 6, y: y, size: 8.5, font: helv, color: gray, lineHeight: 12 }
                                 );
+                            }
+                            // #412 M2 — each signer's marked-up copy, saved to the record.
+                            for (var m = 0; m < markedUp.length; m++) {
+                                y = drawWrappedText(
+                                    page,
+                                    winAnsi(
+                                        'Marked up by: ' +
+                                            markedUp[m].name +
+                                            ', ' +
+                                            (markedUp[m].at || '') +
+                                            ' (saved to the record)'
+                                    ),
+                                    { x: CERT_LEFT + 6, y: y, size: 8.5, font: helv, color: gray, lineHeight: 12 }
+                                );
+                                page.drawText('Markup SHA-256: ' + (markedUp[m].sha256 || 'not recorded'), {
+                                    x: CERT_LEFT + 6,
+                                    y: y,
+                                    size: 7.5,
+                                    font: helv,
+                                    color: gray
+                                });
+                                y -= 12;
                             }
                             y -= 10;
                         }
@@ -3705,7 +4020,8 @@
                                 return '';
                             }
                         })();
-                        return confirmAttachmentsReviewed()
+                        return uploadMarkups()
+                            .then(confirmAttachmentsReviewed)
                             .then(getCertificateData)
                             .then(function (cert) {
                                 // #412 — never finish an attachment request without its register:
@@ -4182,6 +4498,15 @@
                     function openFinalSubmit() {
                         // #412 — every attached document must be opened first (server-enforced too).
                         if (!requireAttachmentsOpened()) return;
+                        // #412 M2 — under "Decline only", approving means approved as-is.
+                        if (markupMode === 'Decline only' && hasAnyMarks()) {
+                            window.alert(
+                                'Your markups can only be sent with a decline: approving here means approving the ' +
+                                    'documents as they are. To send your markups, choose Decline. To approve, clear ' +
+                                    'your marks first.'
+                            );
+                            return;
+                        }
                         modalMode = 'final';
                         activeSpot = null;
                         document.getElementById('modal-draw-group').style.display = 'none';
@@ -4818,6 +5143,23 @@
                         btn.textContent = 'Declining...';
 
                         var ua = navigator.userAgent || 'Unknown';
+                        // #412 M2 — the markups are saved to the record before the decline.
+                        uploadMarkups()
+                            .then(function () {
+                                sendDecline(reason, btn, ua);
+                            })
+                            .catch(function (err) {
+                                btn.disabled = false;
+                                btn.textContent = 'Confirm Decline';
+                                window.alert(
+                                    err && err.userMessage
+                                        ? err.userMessage
+                                        : 'Your markups could not be saved. Please try again.'
+                                );
+                            });
+                    }
+
+                    function sendDecline(reason, btn, ua) {
                         Visualforce.remoting.Manager.invokeAction(
                             '{!$RemoteAction.DocGenSignatureController.declineSignature}',
                             token,
