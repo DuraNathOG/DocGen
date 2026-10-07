@@ -473,6 +473,21 @@
     </fieldPermissions>
     <fieldPermissions>
         <editable>true</editable>
+        <field>DocGen_Settings__c.Signature_Attachment_Max_File_MB__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>DocGen_Settings__c.Signature_Attachment_Max_Files__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>DocGen_Settings__c.Signature_Attachment_Max_Total_MB__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
         <field>DocGen_Settings__c.Signature_Hide_Decline__c</field>
         <readable>true</readable>
     </fieldPermissions>
@@ -835,6 +850,11 @@
     <fieldPermissions>
         <editable>true</editable>
         <field>DocGen_Signer__c.PIN_Verified_At__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>DocGen_Signer__c.Attachments_Reviewed_At__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>

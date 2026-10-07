@@ -18,9 +18,17 @@
       with Select all and a Before/After position. The preview lists the ticked files in signing
       order and opens them in Salesforce's file viewer. Flow gets the same through two new optional
       inputs on **Portwood: Create Signature Request**: **Attached Documents** (file Ids) and
-      **Attached Documents Position**. Each file is pinned to its version at send. Limits are
-      100 files per request and 20 MB each, PDFs on the related record only, refused for
-      `{#Signatures}` loop-only templates. A bad selection is reported, never half-sent.
+      **Attached Documents Position**. Each file is pinned to its version at send. PDFs on the
+      related record only, refused for `{#Signatures}` loop-only templates. A bad selection is
+      reported, never half-sent. The Sender calls a new options-object method,
+      `createGuidedPdfSignatureRequestV2(GuidedPdfSendOptions)`, which the Flow action shares, so
+      future send options don't need another overload.
+    - **Limits, set per org.** A new **Attached Documents** section in Signature Settings: max
+      size of one document (default 20 MB, up to 50), max documents per request (default 100,
+      up to 200) and max total size (default 200 MB). Checked at send.
+    - **Decline stays available.** A send with attached documents is refused while Decline is
+      hidden on the template or org-wide, and the template editor warns about it. If Decline is
+      hidden after sending, these requests still offer it.
     - **Sign.** A document switcher with per-document ticks. Attachments show one at a time
       in PDF.js's own viewer component (added to the `pdfjs4` static resource at the same
       4.7.76 build). It draws only the pages in view, so a 14-page A1 set opens at the page
@@ -29,12 +37,16 @@
       endpoint (`signature-attachment`), because drawings run past what Visualforce
       remoting can carry. 16.6 MB sheets load in seconds. The browser checks each download
       against the server's SHA-256.
-    - **Approve gate.** Every attachment must be opened before the signer can finish. This is
-      enforced in the page and in `saveCompositedSignedPdf`; the server re-render fallbacks
-      are refused for requests with attachments. Decline is unaffected.
+    - **Approve gate.** Every attachment must be opened, and the signer must then tick
+      "I confirm I have reviewed the attached documents" (`DocGen_Signer__c.Attachments_Reviewed_At__c`,
+      recorded only once every document was opened), before they can finish. This is enforced
+      in the page and in `saveCompositedSignedPdf`; the server re-render fallbacks are refused for
+      requests with attachments. Decline is unaffected.
     - **Approval register.** The signed PDF gains an **Attached Documents** page before the
       Certificate of Completion, listing each attachment's version, size, SHA-256 and who
-      opened it when. The attachments themselves stay unchanged on the record.
+      opened it when, then each signer's review confirmation. The register says the confirmation
+      records what the signer confirmed, not that every page was read. The attachments
+      themselves stay unchanged on the record.
     - New objects: `DocGen_Signature_Attachment__c` (the pinned file per request) and
       `DocGen_Signer_Attachment__c` (each signer's review of each file: opened now, markup
       later). They appear as related lists on the signature request and signer layouts.

@@ -2,8 +2,7 @@ import { LightningElement, api, wire, track } from 'lwc';
 import { NavigationMixin } from 'lightning/navigation';
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import getSignerRolePicklistValues from '@salesforce/apex/DocGenSignatureSenderController.getSignerRolePicklistValues';
-import createGuidedPdfSignatureRequest from '@salesforce/apex/DocGenSignatureSenderController.createGuidedPdfSignatureRequest';
-import createGuidedPdfSignatureRequestWithAttachments from '@salesforce/apex/DocGenSignatureSenderController.createGuidedPdfSignatureRequestWithAttachments';
+import createGuidedPdfSignatureRequestV2 from '@salesforce/apex/DocGenSignatureSenderController.createGuidedPdfSignatureRequestV2';
 import getAttachableRecordPdfs from '@salesforce/apex/DocGenSignatureSenderController.getAttachableRecordPdfs';
 import markSignerVerifiedInPerson from '@salesforce/apex/DocGenSignatureSenderController.markSignerVerifiedInPerson';
 import createPacketSignerRequest from '@salesforce/apex/DocGenSignatureSenderController.createPacketSignerRequestWithTitle';
@@ -783,7 +782,7 @@ export default class DocGenSignatureSender extends NavigationMixin(LightningElem
                 // Certificate of Completion. Templates with {@Signature_Role:Order:Type}
                 // tags position chips at those tags; tag-less legacy templates get an
                 // auto-appended "Signatures" block server-side (option b). One path for all.
-                const guidedArgs = {
+                const options = {
                     templateId: single.templateId,
                     relatedRecordId: this.recordId,
                     signersJson,
@@ -795,16 +794,13 @@ export default class DocGenSignatureSender extends NavigationMixin(LightningElem
                     prefillSignerEmail: this.prefillValue,
                     expirationDays: parseInt(this.expirationDays, 10) || null
                 };
+                // #412 — existing record PDFs shown to the signer alongside the template.
+                if (this.orderedSelectedAttachments.length > 0) {
+                    options.attachedDocumentIds = this.orderedSelectedAttachments.map((f) => f.contentDocumentId);
+                    options.attachedDocumentPosition = this.attachmentPosition;
+                }
                 // CxSAST: CSRF protection handled by Salesforce Aura/LWC framework
-                this.signerResults =
-                    this.orderedSelectedAttachments.length > 0
-                        ? await createGuidedPdfSignatureRequestWithAttachments({
-                              ...guidedArgs,
-                              sendEmails: null,
-                              attachedDocumentIds: this.orderedSelectedAttachments.map((f) => f.contentDocumentId),
-                              attachedDocumentPosition: this.attachmentPosition
-                          })
-                        : await createGuidedPdfSignatureRequest(guidedArgs);
+                this.signerResults = await createGuidedPdfSignatureRequestV2({ options });
             } else {
                 const templateIds = this.selectedTemplates.map((t) => t.templateId);
                 // CxSAST: CSRF protection handled by Salesforce Aura/LWC framework
