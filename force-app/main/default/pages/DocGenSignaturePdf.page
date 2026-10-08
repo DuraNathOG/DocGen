@@ -717,119 +717,207 @@
                 .dg-att-scroller .pdfViewer {
                     padding: 8px 0;
                 }
-                /* #412 M2 — markup tools. In pen mode one finger draws, so the box stops panning
+                /* #412 M2 — markup tools. While drawing, one finger draws, so the box stops panning
                    natively; two-finger pinch still zooms. */
                 .dg-att-scroller.dg-marking {
                     cursor: crosshair;
                 }
+                .dg-att-scroller.dg-selecting {
+                    cursor: default;
+                }
                 .dg-att-scroller.dg-pen {
                     touch-action: none;
                 }
+                .dg-shape-preview {
+                    position: absolute;
+                    pointer-events: none;
+                    overflow: visible;
+                    z-index: 10;
+                }
+                .mk-sprite {
+                    position: absolute;
+                    width: 0;
+                    height: 0;
+                    overflow: hidden;
+                }
                 .markup-bar {
-                    background: #fef1e8;
-                    border-bottom: 1px solid #f4bc8e;
+                    background: #fff;
+                    border-bottom: 1px solid #dddbda;
                     color: #3e3e3c;
                     display: flex;
                     align-items: center;
                     flex-wrap: wrap;
-                    gap: 0.5rem;
-                    padding: 0.35rem 1rem;
-                    font-size: 0.8125rem;
+                    gap: 2px;
+                    padding: 4px 8px;
                     flex-shrink: 0;
+                    position: relative;
+                    z-index: 5;
                 }
-                .markup-group {
+                .mk-group {
                     display: flex;
                     align-items: center;
-                    gap: 0.25rem;
+                    gap: 2px;
                     position: relative;
                 }
-                .markup-group + .markup-group {
-                    border-left: 1px solid #f4bc8e;
-                    padding-left: 0.5rem;
+                .mk-group + .mk-group {
+                    margin-left: 4px;
+                    padding-left: 6px;
+                    border-left: 1px solid #e5e5e5;
                 }
-                .markup-tool {
+                .mk-end {
+                    margin-left: auto;
+                }
+                .mk-btn {
+                    position: relative;
                     display: inline-flex;
                     align-items: center;
-                    gap: 0.35rem;
-                    background: #fff;
-                    border: 1px solid #c9c7c5;
-                    border-radius: 0.25rem;
+                    justify-content: center;
+                    gap: 1px;
+                    min-width: 32px;
+                    height: 32px;
+                    padding: 0 6px;
+                    border: 0;
+                    border-radius: 6px;
+                    background: transparent;
                     color: #3e3e3c;
-                    font-size: 0.8125rem;
-                    line-height: 1;
-                    padding: 0.35rem 0.55rem;
+                    font-size: 13px;
                     cursor: pointer;
                 }
-                .markup-tool:hover:not(:disabled) {
-                    background: #f3f3f3;
+                .mk-btn:hover:not(:disabled) {
+                    background: #f3f2f2;
                 }
-                .markup-tool:disabled {
-                    color: #a8a6a3;
+                .mk-btn.active {
+                    background: #e5f0fb;
+                    color: #0b5cab;
+                }
+                .mk-btn:disabled {
+                    color: #c9c7c5;
                     cursor: default;
                 }
-                .markup-tool.active {
-                    background: #0176d3;
-                    border-color: #0176d3;
-                    color: #fff;
+                .mk-btn:focus-visible {
+                    outline: 2px solid #0176d3;
+                    outline-offset: 1px;
                 }
-                .markup-icon {
-                    width: 0.875rem;
-                    height: 0.875rem;
-                    fill: currentColor;
-                }
-                .markup-swatch {
-                    width: 0.875rem;
-                    height: 0.875rem;
-                    border-radius: 50%;
-                    border: 1px solid rgba(0, 0, 0, 0.25);
-                }
-                .markup-menu {
+                .mk-btn[data-tip]:hover::after,
+                .mk-btn[data-tip]:focus-visible::after {
+                    content: attr(data-tip);
                     position: absolute;
-                    top: calc(100% + 0.35rem);
+                    top: calc(100% + 6px);
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: #181818;
+                    color: #fff;
+                    font-size: 11px;
+                    line-height: 1.3;
+                    padding: 3px 7px;
+                    border-radius: 4px;
+                    white-space: nowrap;
+                    pointer-events: none;
+                    z-index: 50;
+                }
+                .mk-btn.open::after {
+                    display: none;
+                }
+                .mk-icon {
+                    width: 18px;
+                    height: 18px;
+                    fill: none;
+                    stroke: currentColor;
+                    stroke-width: 1.75;
+                    stroke-linecap: round;
+                    stroke-linejoin: round;
+                }
+                .mk-chev {
+                    width: 12px;
+                    height: 12px;
+                    margin-left: -1px;
+                }
+                .mk-dot {
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 50%;
+                    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+                }
+                .mk-menu {
+                    position: absolute;
+                    top: calc(100% + 6px);
                     left: 0;
-                    z-index: 20;
+                    z-index: 60;
                     background: #fff;
-                    border: 1px solid #c9c7c5;
-                    border-radius: 0.25rem;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
-                    padding: 0.6rem 0.75rem;
-                    min-width: 13rem;
+                    border: 1px solid #dddbda;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+                    padding: 6px;
+                    min-width: 184px;
                 }
-                .markup-menu-label {
+                .mk-menu-label {
                     color: #706e6b;
-                    font-size: 0.75rem;
-                    margin: 0.35rem 0 0.25rem;
+                    font-size: 11px;
+                    padding: 6px 8px 2px;
                 }
-                .markup-menu-row {
+                .mk-item {
                     display: flex;
-                    gap: 0.35rem;
+                    align-items: center;
+                    gap: 10px;
+                    width: 100%;
+                    padding: 6px 8px;
+                    border: 0;
+                    border-radius: 6px;
+                    background: transparent;
+                    color: #3e3e3c;
+                    font-size: 13px;
+                    text-align: left;
+                    cursor: pointer;
                 }
-                .markup-menu-row .markup-tool {
-                    padding: 0.3rem 0.5rem;
+                .mk-item:hover {
+                    background: #f3f2f2;
                 }
-                .markup-color {
-                    width: 1.5rem;
-                    height: 1.5rem;
+                .mk-item.active {
+                    background: #e5f0fb;
+                    color: #0b5cab;
+                }
+                .mk-kbd {
+                    margin-left: auto;
+                    color: #939393;
+                    font-size: 12px;
+                }
+                .mk-line-sample {
+                    width: 28px;
+                    background: currentColor;
+                    border-radius: 2px;
+                }
+                .mk-swatches {
+                    display: grid;
+                    grid-template-columns: repeat(6, 24px);
+                    gap: 8px;
+                    padding: 6px 8px;
+                }
+                .mk-swatch {
+                    width: 24px;
+                    height: 24px;
                     border-radius: 50%;
                     border: 2px solid #fff;
                     box-shadow: 0 0 0 1px #c9c7c5;
+                    padding: 0;
                     cursor: pointer;
                 }
-                .markup-color.active {
+                .mk-swatch.active {
                     box-shadow: 0 0 0 2px #0176d3;
+                }
+                .markup-note {
+                    color: #706e6b;
+                    font-size: 12px;
+                    margin-left: 8px;
                 }
                 .btn-destructive.primary {
                     background: #ea001e;
                     color: #fff;
                 }
-                @media (max-width: 600px) {
-                    .markup-label {
+                @media (max-width: 700px) {
+                    .markup-note,
+                    .mk-clear-label {
                         display: none;
                     }
-                }
-                .markup-note {
-                    color: #706e6b;
-                    font-size: 0.75rem;
                 }
                 .attachment-viewer .attachment-message {
                     color: #fff;
@@ -1015,7 +1103,8 @@
                                     +
                                 </button>
                             </div>
-                            <!-- #412 M2 — shown when the template allows markup -->
+                            <!-- #412 M2 — markup toolbar, shown when the template allows markup. Icons:
+                                 Tabler (outline, MIT, see THIRD-PARTY-NOTICES.md), inlined. -->
                             <div
                                 id="markup-bar"
                                 class="markup-bar"
@@ -1023,134 +1112,369 @@
                                 role="toolbar"
                                 aria-label="Markup tools"
                             >
-                                <div class="markup-group">
+                                <svg class="mk-sprite" aria-hidden="true" focusable="false">
+                                    <symbol id="dgi-pointer" viewBox="0 0 24 24">
+                                        <path
+                                            d="M7.904 17.563a1.2 1.2 0 0 0 2.228 .308l2.09 -3.093l4.907 4.907a1.067 1.067 0 0 0 1.509 0l1.047 -1.047a1.067 1.067 0 0 0 0 -1.509l-4.907 -4.907l3.113 -2.09a1.2 1.2 0 0 0 -.309 -2.228l-13.582 -3.904l3.904 13.563"
+                                        />
+                                    </symbol>
+                                    <symbol id="dgi-hand-stop" viewBox="0 0 24 24">
+                                        <path d="M8 13v-7.5a1.5 1.5 0 0 1 3 0v6.5" />
+                                        <path d="M11 5.5v-2a1.5 1.5 0 1 1 3 0v8.5" />
+                                        <path d="M14 5.5a1.5 1.5 0 0 1 3 0v6.5" />
+                                        <path
+                                            d="M17 7.5a1.5 1.5 0 0 1 3 0v8.5a6 6 0 0 1 -6 6h-2h.208a6 6 0 0 1 -5.012 -2.7a69.74 69.74 0 0 1 -.196 -.3c-.312 -.479 -1.407 -2.388 -3.286 -5.728a1.5 1.5 0 0 1 .536 -2.022a1.867 1.867 0 0 1 2.28 .28l1.47 1.47"
+                                        />
+                                    </symbol>
+                                    <symbol id="dgi-pencil" viewBox="0 0 24 24">
+                                        <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+                                        <path d="M13.5 6.5l4 4" />
+                                    </symbol>
+                                    <symbol id="dgi-highlight" viewBox="0 0 24 24">
+                                        <path d="M3 19h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+                                        <path d="M12.5 5.5l4 4" />
+                                        <path d="M4.5 13.5l4 4" />
+                                        <path d="M21 15v4h-8l4 -4l4 0" />
+                                    </symbol>
+                                    <symbol id="dgi-square" viewBox="0 0 24 24">
+                                        <path
+                                            d="M3 5a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14"
+                                        />
+                                    </symbol>
+                                    <symbol id="dgi-circle" viewBox="0 0 24 24">
+                                        <path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" />
+                                    </symbol>
+                                    <symbol id="dgi-line" viewBox="0 0 24 24">
+                                        <path d="M4 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+                                        <path d="M16 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+                                        <path d="M7.5 16.5l9 -9" />
+                                    </symbol>
+                                    <symbol id="dgi-arrow-up-right" viewBox="0 0 24 24">
+                                        <path d="M17 7l-10 10" />
+                                        <path d="M8 7l9 0l0 9" />
+                                    </symbol>
+                                    <symbol id="dgi-cloud" viewBox="0 0 24 24">
+                                        <path
+                                            d="M6.657 18c-2.572 0 -4.657 -2.007 -4.657 -4.483c0 -2.475 2.085 -4.482 4.657 -4.482c.393 -1.762 1.794 -3.2 3.675 -3.773c1.88 -.572 3.956 -.193 5.444 1c1.488 1.19 2.162 3.007 1.77 4.769h.99c1.913 0 3.464 1.56 3.464 3.486c0 1.927 -1.551 3.487 -3.465 3.487h-11.878"
+                                        />
+                                    </symbol>
+                                    <symbol id="dgi-typography" viewBox="0 0 24 24">
+                                        <path d="M4 20l3 0" />
+                                        <path d="M14 20l7 0" />
+                                        <path d="M6.9 15l6.9 0" />
+                                        <path d="M10.2 6.3l5.8 13.7" />
+                                        <path d="M5 20l6 -16l2 0l7 16" />
+                                    </symbol>
+                                    <symbol id="dgi-arrow-back-up" viewBox="0 0 24 24">
+                                        <path d="M9 14l-4 -4l4 -4" />
+                                        <path d="M5 10h11a4 4 0 1 1 0 8h-1" />
+                                    </symbol>
+                                    <symbol id="dgi-arrow-forward-up" viewBox="0 0 24 24">
+                                        <path d="M15 14l4 -4l-4 -4" />
+                                        <path d="M19 10h-11a4 4 0 1 0 0 8h1" />
+                                    </symbol>
+                                    <symbol id="dgi-trash" viewBox="0 0 24 24">
+                                        <path d="M4 7l16 0" />
+                                        <path d="M10 11l0 6" />
+                                        <path d="M14 11l0 6" />
+                                        <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" />
+                                        <path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />
+                                    </symbol>
+                                    <symbol id="dgi-eraser" viewBox="0 0 24 24">
+                                        <path
+                                            d="M19 20h-10.5l-4.21 -4.3a1 1 0 0 1 0 -1.41l10 -10a1 1 0 0 1 1.41 0l5 5a1 1 0 0 1 0 1.41l-9.2 9.3"
+                                        />
+                                        <path d="M18 13.3l-6.3 -6.3" />
+                                    </symbol>
+                                    <symbol id="dgi-chevron-down" viewBox="0 0 24 24">
+                                        <path d="M6 9l6 6l6 -6" />
+                                    </symbol>
+                                    <symbol id="dgi-width" viewBox="0 0 24 24">
+                                        <rect
+                                            x="4"
+                                            y="5"
+                                            width="16"
+                                            height="1.25"
+                                            rx="0.6"
+                                            fill="currentColor"
+                                            stroke="none"
+                                        />
+                                        <rect
+                                            x="4"
+                                            y="10.5"
+                                            width="16"
+                                            height="2.5"
+                                            rx="1.2"
+                                            fill="currentColor"
+                                            stroke="none"
+                                        />
+                                        <rect
+                                            x="4"
+                                            y="16.5"
+                                            width="16"
+                                            height="4"
+                                            rx="2"
+                                            fill="currentColor"
+                                            stroke="none"
+                                        />
+                                    </symbol>
+                                </svg>
+                                <div class="mk-group">
                                     <button
-                                        id="markup-move"
-                                        class="markup-tool active"
+                                        class="mk-btn"
                                         type="button"
-                                        title="Move around the drawing"
-                                        aria-pressed="true"
-                                    >
-                                        <svg class="markup-icon" aria-hidden="true">
-                                            <use
-                                                href="{!URLFOR($Asset.SLDS, 'assets/icons/utility-sprite/svg/symbols.svg#move')}"
-                                            ></use></svg
-                                        ><span class="markup-label">Move</span>
-                                    </button>
-                                    <button
-                                        id="markup-pen"
-                                        class="markup-tool"
-                                        type="button"
-                                        title="Draw on the drawing"
+                                        data-tool="select"
+                                        data-tip="Select (V)"
+                                        aria-label="Select"
                                         aria-pressed="false"
                                     >
-                                        <svg class="markup-icon" aria-hidden="true">
-                                            <use
-                                                href="{!URLFOR($Asset.SLDS, 'assets/icons/utility-sprite/svg/symbols.svg#edit')}"
-                                            ></use></svg
-                                        ><span class="markup-label">Draw</span>
+                                        <svg class="mk-icon" aria-hidden="true"><use href="#dgi-pointer"></use></svg>
                                     </button>
                                     <button
-                                        id="markup-text"
-                                        class="markup-tool"
+                                        class="mk-btn"
                                         type="button"
-                                        title="Add a text note: click where it goes"
+                                        data-tool="pan"
+                                        data-tip="Pan (H)"
+                                        aria-label="Pan"
                                         aria-pressed="false"
                                     >
-                                        <svg class="markup-icon" aria-hidden="true">
-                                            <use
-                                                href="{!URLFOR($Asset.SLDS, 'assets/icons/utility-sprite/svg/symbols.svg#text')}"
-                                            ></use></svg
-                                        ><span class="markup-label">Text</span>
+                                        <svg class="mk-icon" aria-hidden="true"><use href="#dgi-hand-stop"></use></svg>
                                     </button>
                                 </div>
-                                <div class="markup-group">
+                                <div class="mk-group">
                                     <button
-                                        id="markup-style"
-                                        class="markup-tool"
+                                        class="mk-btn"
                                         type="button"
-                                        title="Colour and size"
+                                        data-tool="pen"
+                                        data-tip="Pen (P)"
+                                        aria-label="Pen"
+                                        aria-pressed="false"
+                                    >
+                                        <svg class="mk-icon" aria-hidden="true"><use href="#dgi-pencil"></use></svg>
+                                    </button>
+                                    <button
+                                        class="mk-btn"
+                                        type="button"
+                                        data-tool="highlight"
+                                        data-tip="Highlighter (U)"
+                                        aria-label="Highlighter"
+                                        aria-pressed="false"
+                                    >
+                                        <svg class="mk-icon" aria-hidden="true"><use href="#dgi-highlight"></use></svg>
+                                    </button>
+                                    <button
+                                        id="mk-shapes"
+                                        class="mk-btn"
+                                        type="button"
+                                        data-menu="mk-shapes-menu"
+                                        data-tip="Shapes (R, O, L)"
+                                        aria-label="Shapes"
                                         aria-haspopup="true"
                                         aria-expanded="false"
                                     >
-                                        <span id="markup-swatch" class="markup-swatch"></span
-                                        ><span class="markup-label">Style</span>
+                                        <svg id="mk-shapes-icon" class="mk-icon" aria-hidden="true">
+                                            <use href="#dgi-square"></use></svg
+                                        ><svg class="mk-icon mk-chev" aria-hidden="true">
+                                            <use href="#dgi-chevron-down"></use>
+                                        </svg>
                                     </button>
-                                    <div id="markup-style-menu" class="markup-menu" style="display: none">
-                                        <div class="markup-menu-label">Colour</div>
-                                        <div class="markup-menu-row">
+                                    <div id="mk-shapes-menu" class="mk-menu" style="display: none" role="menu">
+                                        <button class="mk-item" type="button" role="menuitem" data-tool="rect">
+                                            <svg class="mk-icon" aria-hidden="true"><use href="#dgi-square"></use></svg
+                                            >Rectangle<span class="mk-kbd">R</span>
+                                        </button>
+                                        <button class="mk-item" type="button" role="menuitem" data-tool="ellipse">
+                                            <svg class="mk-icon" aria-hidden="true"><use href="#dgi-circle"></use></svg
+                                            >Ellipse<span class="mk-kbd">O</span>
+                                        </button>
+                                        <button class="mk-item" type="button" role="menuitem" data-tool="line">
+                                            <svg class="mk-icon" aria-hidden="true"><use href="#dgi-line"></use></svg
+                                            >Line<span class="mk-kbd">L</span>
+                                        </button>
+                                    </div>
+                                    <button
+                                        class="mk-btn"
+                                        type="button"
+                                        data-tool="arrow"
+                                        data-tip="Arrow (A)"
+                                        aria-label="Arrow"
+                                        aria-pressed="false"
+                                    >
+                                        <svg class="mk-icon" aria-hidden="true">
+                                            <use href="#dgi-arrow-up-right"></use>
+                                        </svg>
+                                    </button>
+                                    <button
+                                        class="mk-btn"
+                                        type="button"
+                                        data-tool="cloud"
+                                        data-tip="Revision cloud (C)"
+                                        aria-label="Revision cloud"
+                                        aria-pressed="false"
+                                    >
+                                        <svg class="mk-icon" aria-hidden="true"><use href="#dgi-cloud"></use></svg>
+                                    </button>
+                                    <button
+                                        class="mk-btn"
+                                        type="button"
+                                        data-tool="text"
+                                        data-tip="Text (T)"
+                                        aria-label="Text"
+                                        aria-pressed="false"
+                                    >
+                                        <svg class="mk-icon" aria-hidden="true"><use href="#dgi-typography"></use></svg>
+                                    </button>
+                                </div>
+                                <div class="mk-group">
+                                    <button
+                                        id="mk-width"
+                                        class="mk-btn"
+                                        type="button"
+                                        data-menu="mk-width-menu"
+                                        data-tip="Line width and text size"
+                                        aria-label="Line width and text size"
+                                        aria-haspopup="true"
+                                        aria-expanded="false"
+                                    >
+                                        <svg class="mk-icon" aria-hidden="true"><use href="#dgi-width"></use></svg
+                                        ><svg class="mk-icon mk-chev" aria-hidden="true">
+                                            <use href="#dgi-chevron-down"></use>
+                                        </svg>
+                                    </button>
+                                    <div id="mk-width-menu" class="mk-menu" style="display: none" role="menu">
+                                        <div class="mk-menu-label">Line</div>
+                                        <button class="mk-item" type="button" role="menuitemradio" data-thickness="1.5">
+                                            <span class="mk-line-sample" style="height: 1.5px"></span>Thin
+                                        </button>
+                                        <button class="mk-item" type="button" role="menuitemradio" data-thickness="3">
+                                            <span class="mk-line-sample" style="height: 3px"></span>Medium
+                                        </button>
+                                        <button class="mk-item" type="button" role="menuitemradio" data-thickness="6">
+                                            <span class="mk-line-sample" style="height: 6px"></span>Thick
+                                        </button>
+                                        <div class="mk-menu-label">Text</div>
+                                        <button class="mk-item" type="button" role="menuitemradio" data-size="10">
+                                            <span style="font-size: 11px; width: 28px">Aa</span>Small
+                                        </button>
+                                        <button class="mk-item" type="button" role="menuitemradio" data-size="14">
+                                            <span style="font-size: 14px; width: 28px">Aa</span>Medium
+                                        </button>
+                                        <button class="mk-item" type="button" role="menuitemradio" data-size="20">
+                                            <span style="font-size: 18px; width: 28px">Aa</span>Large
+                                        </button>
+                                    </div>
+                                    <button
+                                        id="mk-colour"
+                                        class="mk-btn"
+                                        type="button"
+                                        data-menu="mk-colour-menu"
+                                        data-tip="Colour"
+                                        aria-label="Colour"
+                                        aria-haspopup="true"
+                                        aria-expanded="false"
+                                    >
+                                        <span id="markup-swatch" class="mk-dot"></span
+                                        ><svg class="mk-icon mk-chev" aria-hidden="true">
+                                            <use href="#dgi-chevron-down"></use>
+                                        </svg>
+                                    </button>
+                                    <div id="mk-colour-menu" class="mk-menu" style="display: none" role="menu">
+                                        <div class="mk-swatches">
                                             <button
-                                                class="markup-color"
+                                                class="mk-swatch"
                                                 type="button"
                                                 data-color="#d0021b"
                                                 style="background: #d0021b"
                                                 aria-label="Red"
                                             ></button>
                                             <button
-                                                class="markup-color"
+                                                class="mk-swatch"
                                                 type="button"
-                                                data-color="#0b5cab"
-                                                style="background: #0b5cab"
-                                                aria-label="Blue"
+                                                data-color="#e07a10"
+                                                style="background: #e07a10"
+                                                aria-label="Orange"
                                             ></button>
                                             <button
-                                                class="markup-color"
+                                                class="mk-swatch"
+                                                type="button"
+                                                data-color="#f4c20d"
+                                                style="background: #f4c20d"
+                                                aria-label="Yellow"
+                                            ></button>
+                                            <button
+                                                class="mk-swatch"
                                                 type="button"
                                                 data-color="#2e844a"
                                                 style="background: #2e844a"
                                                 aria-label="Green"
                                             ></button>
                                             <button
-                                                class="markup-color"
+                                                class="mk-swatch"
+                                                type="button"
+                                                data-color="#0b5cab"
+                                                style="background: #0b5cab"
+                                                aria-label="Blue"
+                                            ></button>
+                                            <button
+                                                class="mk-swatch"
                                                 type="button"
                                                 data-color="#181818"
                                                 style="background: #181818"
                                                 aria-label="Black"
                                             ></button>
                                         </div>
-                                        <div class="markup-menu-label">Pen</div>
-                                        <div class="markup-menu-row">
-                                            <button class="markup-tool" type="button" data-thickness="1.5">Thin</button>
-                                            <button class="markup-tool" type="button" data-thickness="3">Medium</button>
-                                            <button class="markup-tool" type="button" data-thickness="6">Thick</button>
-                                        </div>
-                                        <div class="markup-menu-label">Text</div>
-                                        <div class="markup-menu-row">
-                                            <button class="markup-tool" type="button" data-size="10">Small</button>
-                                            <button class="markup-tool" type="button" data-size="14">Medium</button>
-                                            <button class="markup-tool" type="button" data-size="20">Large</button>
-                                        </div>
                                     </div>
                                 </div>
-                                <div class="markup-group">
+                                <div class="mk-group">
                                     <button
                                         id="markup-undo"
-                                        class="markup-tool"
+                                        class="mk-btn"
                                         type="button"
-                                        title="Undo"
+                                        data-tip="Undo (Ctrl+Z)"
+                                        aria-label="Undo"
                                         disabled="disabled"
                                     >
-                                        <svg class="markup-icon" aria-hidden="true">
-                                            <use
-                                                href="{!URLFOR($Asset.SLDS, 'assets/icons/utility-sprite/svg/symbols.svg#undo')}"
-                                            ></use></svg
-                                        ><span class="markup-label">Undo</span>
+                                        <svg class="mk-icon" aria-hidden="true">
+                                            <use href="#dgi-arrow-back-up"></use>
+                                        </svg>
                                     </button>
                                     <button
-                                        id="markup-clear"
-                                        class="markup-tool"
+                                        id="markup-redo"
+                                        class="mk-btn"
                                         type="button"
-                                        title="Remove all your marks from this document"
+                                        data-tip="Redo (Ctrl+Shift+Z)"
+                                        aria-label="Redo"
                                         disabled="disabled"
                                     >
-                                        <svg class="markup-icon" aria-hidden="true">
-                                            <use
-                                                href="{!URLFOR($Asset.SLDS, 'assets/icons/utility-sprite/svg/symbols.svg#delete')}"
-                                            ></use></svg
-                                        ><span id="markup-clear-label" class="markup-label">Clear my marks</span>
+                                        <svg class="mk-icon" aria-hidden="true">
+                                            <use href="#dgi-arrow-forward-up"></use>
+                                        </svg>
+                                    </button>
+                                    <button
+                                        id="markup-delete"
+                                        class="mk-btn"
+                                        type="button"
+                                        data-tip="Delete the selected mark (Delete)"
+                                        aria-label="Delete the selected mark"
+                                        disabled="disabled"
+                                    >
+                                        <svg class="mk-icon" aria-hidden="true"><use href="#dgi-trash"></use></svg>
                                     </button>
                                 </div>
-                                <span id="markup-note" class="markup-note"></span>
+                                <div class="mk-group mk-end">
+                                    <button
+                                        id="markup-clear"
+                                        class="mk-btn"
+                                        type="button"
+                                        data-tip="Remove all your marks from this document"
+                                        aria-label="Clear all marks"
+                                        disabled="disabled"
+                                    >
+                                        <svg class="mk-icon" aria-hidden="true"><use href="#dgi-eraser"></use></svg
+                                        ><span id="markup-clear-label" class="mk-clear-label">Clear all</span>
+                                    </button>
+                                    <span id="markup-note" class="markup-note"></span>
+                                </div>
                             </div>
                             <div class="pdf-viewer attachment-viewer" id="attachment-viewer-container"></div>
                         </div>
@@ -2038,10 +2362,25 @@
                         st.pending = 1;
                     }
 
-                    // #412 M2 — the signer's pen and text style (red by default, so markups stand
-                    // out from the drawing). Sent to PDF.js's editors: new marks use it, and so does
-                    // a mark that is selected.
-                    var toolStyle = { color: '#d0021b', thickness: 3, fontSize: 14 };
+                    // #412 M2 — the signer's style (red by default, so markups stand out from the
+                    // drawing). Sent to PDF.js's editors: new marks use it, and so does a selected
+                    // mark. thickness is in PDF points.
+                    var toolStyle = { color: '#d0021b', highlightColor: '#f4c20d', thickness: 3, fontSize: 14 };
+
+                    // Each tool is a PDF.js editor mode. Select uses the stamp mode, where a click on
+                    // the page selects or deselects marks without creating one. Shapes are drawn by
+                    // this module and added as PDF.js pen marks (see addShape).
+                    var SHAPE_TOOLS = { rect: true, ellipse: true, line: true, arrow: true, cloud: true };
+                    var HIGHLIGHT_WIDTH = 5; // the highlighter is a translucent pen this many times wider
+                    var HIGHLIGHT_OPACITY = 35; // percent
+
+                    function editorMode(st, tool) {
+                        var types = st.core.AnnotationEditorType;
+                        if (tool === 'select') return types.STAMP;
+                        if (tool === 'text') return types.FREETEXT;
+                        if (tool === 'pen' || tool === 'highlight' || SHAPE_TOOLS[tool]) return types.INK;
+                        return types.NONE;
+                    }
 
                     function applyToolParams(st) {
                         var params = st.core.AnnotationEditorParamsType;
@@ -2052,13 +2391,347 @@
                                 value: value
                             });
                         };
-                        if (st.tool === 'pen') {
-                            set(params.INK_COLOR, toolStyle.color);
-                            set(params.INK_THICKNESS, toolStyle.thickness);
-                        } else if (st.tool === 'text') {
+                        if (st.tool === 'text') {
                             set(params.FREETEXT_COLOR, toolStyle.color);
                             set(params.FREETEXT_SIZE, toolStyle.fontSize);
+                        } else if (st.tool === 'highlight') {
+                            set(params.INK_COLOR, toolStyle.highlightColor);
+                            set(params.INK_THICKNESS, toolStyle.thickness * HIGHLIGHT_WIDTH);
+                            set(params.INK_OPACITY, HIGHLIGHT_OPACITY);
+                        } else if (st.tool === 'pen' || SHAPE_TOOLS[st.tool]) {
+                            set(params.INK_COLOR, toolStyle.color);
+                            set(params.INK_THICKNESS, toolStyle.thickness);
+                            set(params.INK_OPACITY, 100);
                         }
+                    }
+
+                    // ---- shapes ----
+                    // A shape is built as cubic segments in the page's CSS pixels (y down), then
+                    // every point is converted to PDF coordinates, so it lands exactly where it was
+                    // drawn at any zoom. Each path is [[p0, c1, c2, p1], ...].
+                    var KAPPA = 0.5522847498;
+
+                    function seg(a, b) {
+                        return [
+                            a,
+                            [a[0] + (b[0] - a[0]) / 3, a[1] + (b[1] - a[1]) / 3],
+                            [a[0] + (2 * (b[0] - a[0])) / 3, a[1] + (2 * (b[1] - a[1])) / 3],
+                            b
+                        ];
+                    }
+
+                    function shapePaths(kind, x0, y0, x1, y1, headLen) {
+                        var minX = Math.min(x0, x1);
+                        var maxX = Math.max(x0, x1);
+                        var minY = Math.min(y0, y1);
+                        var maxY = Math.max(y0, y1);
+                        var tl = [minX, minY];
+                        var tr = [maxX, minY];
+                        var br = [maxX, maxY];
+                        var bl = [minX, maxY];
+                        if (kind === 'line') return [[seg([x0, y0], [x1, y1])]];
+                        if (kind === 'rect') return [[seg(tl, tr), seg(tr, br), seg(br, bl), seg(bl, tl)]];
+                        if (kind === 'ellipse') {
+                            var cx = (minX + maxX) / 2;
+                            var cy = (minY + maxY) / 2;
+                            var kx = ((maxX - minX) / 2) * KAPPA;
+                            var ky = ((maxY - minY) / 2) * KAPPA;
+                            return [
+                                [
+                                    [
+                                        [cx, minY],
+                                        [cx + kx, minY],
+                                        [maxX, cy - ky],
+                                        [maxX, cy]
+                                    ],
+                                    [
+                                        [maxX, cy],
+                                        [maxX, cy + ky],
+                                        [cx + kx, maxY],
+                                        [cx, maxY]
+                                    ],
+                                    [
+                                        [cx, maxY],
+                                        [cx - kx, maxY],
+                                        [minX, cy + ky],
+                                        [minX, cy]
+                                    ],
+                                    [
+                                        [minX, cy],
+                                        [minX, cy - ky],
+                                        [cx - kx, minY],
+                                        [cx, minY]
+                                    ]
+                                ]
+                            ];
+                        }
+                        if (kind === 'arrow') {
+                            var len = Math.hypot(x1 - x0, y1 - y0) || 1;
+                            var ux = (x1 - x0) / len;
+                            var uy = (y1 - y0) / len;
+                            var ang = Math.PI / 7;
+                            var cos = Math.cos(ang);
+                            var sin = Math.sin(ang);
+                            var tip = [x1, y1];
+                            var h1 = [x1 - headLen * (ux * cos - uy * sin), y1 - headLen * (uy * cos + ux * sin)];
+                            var h2 = [x1 - headLen * (ux * cos + uy * sin), y1 - headLen * (uy * cos - ux * sin)];
+                            return [[seg([x0, y0], tip)], [seg(h1, tip), seg(tip, h2)]];
+                        }
+                        if (kind === 'cloud') {
+                            // A revision cloud: scallops bulging outward along each edge, clockwise.
+                            var arc = Math.max(10, Math.min(28, Math.min(maxX - minX, maxY - minY) / 3));
+                            var segs = [];
+                            [
+                                [tl, tr],
+                                [tr, br],
+                                [br, bl],
+                                [bl, tl]
+                            ].forEach(function (edge) {
+                                var A = edge[0];
+                                var ex = edge[1][0] - A[0];
+                                var ey = edge[1][1] - A[1];
+                                var el = Math.hypot(ex, ey) || 1;
+                                var n = Math.max(1, Math.round(el / arc));
+                                var nx = ey / el; // outward normal for a clockwise loop, y down
+                                var ny = -ex / el;
+                                var k = (0.55 * el) / n;
+                                for (var i = 0; i < n; i++) {
+                                    var p = [A[0] + (ex * i) / n, A[1] + (ey * i) / n];
+                                    var q = [A[0] + (ex * (i + 1)) / n, A[1] + (ey * (i + 1)) / n];
+                                    segs.push([p, [p[0] + nx * k, p[1] + ny * k], [q[0] + nx * k, q[1] + ny * k], q]);
+                                }
+                            });
+                            return [segs];
+                        }
+                        return [];
+                    }
+
+                    function headLength(viewport) {
+                        return Math.max(10, toolStyle.thickness * viewport.scale * 4);
+                    }
+
+                    function cubicAt(c, t) {
+                        var u = 1 - t;
+                        return [
+                            u * u * u * c[0][0] +
+                                3 * u * u * t * c[1][0] +
+                                3 * u * t * t * c[2][0] +
+                                t * t * t * c[3][0],
+                            u * u * u * c[0][1] +
+                                3 * u * u * t * c[1][1] +
+                                3 * u * t * t * c[2][1] +
+                                t * t * t * c[3][1]
+                        ];
+                    }
+
+                    function hexToRgb(hex) {
+                        var n = parseInt(hex.slice(1), 16);
+                        return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+                    }
+
+                    // The shape as a serialized PDF.js pen mark, ready for its editor layer.
+                    function shapeData(st, sh, viewport, x1, y1) {
+                        var thickness = toolStyle.thickness;
+                        var paths = shapePaths(sh.kind, sh.x0, sh.y0, x1, y1, headLength(viewport));
+                        var box = [Infinity, Infinity, -Infinity, -Infinity];
+                        // PDF.js places a rebuilt mark relative to the page box's corner, so take off the
+                        // box's origin (a drawing's box is often centred on 0,0); it is added back when
+                        // the mark is saved.
+                        var originX = viewport.rawDims.pageX;
+                        var originY = viewport.rawDims.pageY;
+                        var out = paths.map(function (path) {
+                            var bezier = [];
+                            path.forEach(function (c, j) {
+                                var pdf = c.map(function (p) {
+                                    var pt = viewport.convertToPdfPoint(p[0], p[1]);
+                                    return [pt[0] - originX, pt[1] - originY];
+                                });
+                                if (j === 0) bezier.push(pdf[0][0], pdf[0][1]);
+                                bezier.push(pdf[1][0], pdf[1][1], pdf[2][0], pdf[2][1], pdf[3][0], pdf[3][1]);
+                                [0, 0.5, 1].forEach(function (t) {
+                                    var pt = cubicAt(pdf, t);
+                                    box[0] = Math.min(box[0], pt[0]);
+                                    box[1] = Math.min(box[1], pt[1]);
+                                    box[2] = Math.max(box[2], pt[0]);
+                                    box[3] = Math.max(box[3], pt[1]);
+                                });
+                            });
+                            return { bezier: bezier, points: bezier.slice() };
+                        });
+                        var pad = thickness / 2;
+                        return {
+                            annotationType: st.core.AnnotationEditorType.INK,
+                            color: hexToRgb(toolStyle.color),
+                            thickness: thickness,
+                            opacity: 1,
+                            paths: out,
+                            pageIndex: sh.pageIndex,
+                            rect: [box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad],
+                            rotation: viewport.rotation,
+                            structTreeParentId: null
+                        };
+                    }
+
+                    function pathD(paths) {
+                        return paths
+                            .map(function (path) {
+                                return path
+                                    .map(function (c, j) {
+                                        return (
+                                            (j === 0 ? 'M' + c[0][0] + ' ' + c[0][1] + ' ' : '') +
+                                            'C' +
+                                            [c[1][0], c[1][1], c[2][0], c[2][1], c[3][0], c[3][1]].join(' ')
+                                        );
+                                    })
+                                    .join(' ');
+                            })
+                            .join(' ');
+                    }
+
+                    // The drawing area of a page: PDF.js's markup layer, which matches the page viewport
+                    // (the canvas wrapper can be a few pixels smaller).
+                    function pageArea(pageEl) {
+                        return (
+                            pageEl.querySelector('.annotationEditorLayer') ||
+                            pageEl.querySelector('.canvasWrapper') ||
+                            pageEl
+                        );
+                    }
+
+                    function drawShapePreview(st, sh, x1, y1) {
+                        var viewport = st.viewer.getPageView(sh.pageIndex).viewport;
+                        if (!sh.preview) {
+                            var area = pageArea(sh.pageEl);
+                            var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                            svg.setAttribute('class', 'dg-shape-preview');
+                            svg.style.left = area.offsetLeft + 'px';
+                            svg.style.top = area.offsetTop + 'px';
+                            svg.style.width = area.offsetWidth + 'px';
+                            svg.style.height = area.offsetHeight + 'px';
+                            var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                            p.setAttribute('fill', 'none');
+                            p.setAttribute('stroke-linecap', 'round');
+                            p.setAttribute('stroke-linejoin', 'round');
+                            svg.appendChild(p);
+                            sh.pageEl.appendChild(svg);
+                            sh.preview = svg;
+                            sh.previewPath = p;
+                        }
+                        sh.previewPath.setAttribute('stroke', toolStyle.color);
+                        sh.previewPath.setAttribute('stroke-width', String(toolStyle.thickness * viewport.scale));
+                        sh.previewPath.setAttribute(
+                            'd',
+                            pathD(shapePaths(sh.kind, sh.x0, sh.y0, x1, y1, headLength(viewport)))
+                        );
+                    }
+
+                    function cancelShape(st) {
+                        if (st.shape && st.shape.preview) st.shape.preview.remove();
+                        st.shape = null;
+                    }
+
+                    // Add the finished shape to its page as a PDF.js pen mark: selectable, movable,
+                    // deletable and undoable like any other, and saved into the PDF with the rest.
+                    function addShape(st, sh, x1, y1) {
+                        if (Math.max(Math.abs(x1 - sh.x0), Math.abs(y1 - sh.y0)) < 4) return; // a click
+                        var pageView = st.viewer.getPageView(sh.pageIndex);
+                        var builder = pageView && pageView.annotationEditorLayer;
+                        var layer = builder && builder.annotationEditorLayer;
+                        if (!layer) return;
+                        layer
+                            .deserialize(shapeData(st, sh, pageView.viewport, x1, y1))
+                            .then(function (editor) {
+                                if (!editor) return;
+                                // PDF.js's first render of a rebuilt pen mark offsets it by its own size;
+                                // put it back where it was drawn.
+                                var x = editor.x;
+                                var y = editor.y;
+                                layer.add(editor);
+                                if (editor.x !== x || editor.y !== y) {
+                                    editor.x = x;
+                                    editor.y = y;
+                                    editor.fixAndSetPosition();
+                                }
+                                layer.addUndoableEditor(editor);
+                                notify(st);
+                            })
+                            .catch(function (err) {
+                                console.error('Portwood: the shape could not be added', err);
+                            });
+                    }
+
+                    // Drag to draw a shape. Capture phase on the scroll box, so PDF.js's pen never
+                    // sees these events. A second finger cancels the shape: that's a pinch.
+                    function wireShapeInput(st) {
+                        var scroller = st.scroller;
+                        function local(sh, e) {
+                            var r = pageArea(sh.pageEl).getBoundingClientRect();
+                            return [e.clientX - r.left, e.clientY - r.top];
+                        }
+                        scroller.addEventListener(
+                            'pointerdown',
+                            function (e) {
+                                if (!SHAPE_TOOLS[st.tool]) return;
+                                if (st.shape) {
+                                    cancelShape(st);
+                                    return;
+                                }
+                                if (e.button !== 0) return;
+                                var pageEl = e.target.closest ? e.target.closest('.page') : null;
+                                if (!pageEl) return;
+                                e.preventDefault();
+                                e.stopPropagation();
+                                var sh = {
+                                    id: e.pointerId,
+                                    kind: st.tool,
+                                    pageEl: pageEl,
+                                    pageIndex: Number(pageEl.getAttribute('data-page-number')) - 1,
+                                    preview: null
+                                };
+                                var p = local(sh, e);
+                                sh.x0 = p[0];
+                                sh.y0 = p[1];
+                                st.shape = sh;
+                                try {
+                                    scroller.setPointerCapture(e.pointerId);
+                                } catch (err) {
+                                    /* capture is a nicety */
+                                }
+                            },
+                            true
+                        );
+                        scroller.addEventListener(
+                            'pointermove',
+                            function (e) {
+                                var sh = st.shape;
+                                if (!sh || e.pointerId !== sh.id) return;
+                                e.preventDefault();
+                                e.stopPropagation();
+                                var p = local(sh, e);
+                                drawShapePreview(st, sh, p[0], p[1]);
+                            },
+                            true
+                        );
+                        scroller.addEventListener(
+                            'pointerup',
+                            function (e) {
+                                var sh = st.shape;
+                                if (!sh || e.pointerId !== sh.id) return;
+                                e.preventDefault();
+                                e.stopPropagation();
+                                var p = local(sh, e);
+                                cancelShape(st);
+                                addShape(st, sh, p[0], p[1]);
+                            },
+                            true
+                        );
+                        scroller.addEventListener(
+                            'pointercancel',
+                            function (e) {
+                                if (st.shape && e.pointerId === st.shape.id) cancelShape(st);
+                            },
+                            true
+                        );
                     }
 
                     function boxCentre(st) {
@@ -2068,6 +2741,7 @@
 
                     function wireInput(st) {
                         var scroller = st.scroller;
+                        wireShapeInput(st);
 
                         // Ctrl/⌘ + wheel, and trackpad pinch (browsers report it as ctrl+wheel):
                         // zoom the drawing around the pointer instead of the whole page. A plain
@@ -2133,7 +2807,7 @@
 
                         // Mouse drag-to-pan (the hand tool). Touch already pans natively.
                         scroller.addEventListener('pointerdown', function (e) {
-                            if (e.pointerType !== 'mouse' || e.button !== 0 || st.tool !== 'none') {
+                            if (e.pointerType !== 'mouse' || e.button !== 0 || st.tool !== 'pan') {
                                 return; // a markup tool has the pointer
                             }
                             if (e.target.closest && e.target.closest('a, button, input, select, textarea')) {
@@ -2197,7 +2871,9 @@
                             canZoomOut: scale > st.fitScale * MIN_FIT_FRACTION + 0.005,
                             markup: st.markup,
                             tool: st.tool,
-                            canUndo: !!(st.editor && st.editor.hasSomethingToUndo)
+                            canUndo: !!(st.editor && st.editor.hasSomethingToUndo),
+                            canRedo: !!(st.editor && st.editor.hasSomethingToRedo),
+                            hasSelection: !!(st.editor && st.editor.hasSelectedEditor)
                         };
                     }
 
@@ -2259,7 +2935,7 @@
                                             drag: null,
                                             onChange: onChange,
                                             markup: markup,
-                                            tool: 'none',
+                                            tool: 'pan',
                                             editor: null, // PDF.js's editor state (undo, empty)
                                             eventBus: eventBus,
                                             core: l.core
@@ -2337,37 +3013,57 @@
                             }
                         },
 
-                        // { ready, fit, percent (of fit-to-width), canZoomIn, canZoomOut, markup, tool, canUndo }
+                        // { ready, fit, percent (of fit-to-width), canZoomIn, canZoomOut, markup, tool,
+                        //   canUndo, canRedo, hasSelection }
                         state: state,
 
-                        // #412 M2 — 'none' (move), 'pen' or 'text'. PDF.js's own editors do the
-                        // drawing; this only switches them and sets a red pen and red text.
+                        // #412 M2 — 'select', 'pan', 'pen', 'highlight', 'text', or a shape ('rect',
+                        // 'ellipse', 'line', 'arrow', 'cloud'). PDF.js's own editors do the drawing.
                         setTool: function (tool) {
                             var st = current;
                             if (!st || !st.markup) {
                                 return;
                             }
-                            var types = st.core.AnnotationEditorType;
-                            var mode = tool === 'pen' ? types.INK : tool === 'text' ? types.FREETEXT : types.NONE;
+                            cancelShape(st);
                             st.tool = tool; // before the switch: its event reads it
-                            st.viewer.annotationEditorMode = { mode: mode };
-                            st.scroller.classList.toggle('dg-marking', tool !== 'none');
-                            st.scroller.classList.toggle('dg-pen', tool === 'pen');
+                            st.viewer.annotationEditorMode = { mode: editorMode(st, tool) };
+                            var drawing = tool !== 'pan' && tool !== 'select';
+                            st.scroller.classList.toggle('dg-marking', drawing);
+                            st.scroller.classList.toggle('dg-selecting', tool === 'select');
+                            st.scroller.classList.toggle('dg-pen', drawing && tool !== 'text');
                             applyToolParams(st); // when the mode is unchanged (no event)
                             notify(st);
+                        },
+
+                        redo: function () {
+                            if (current && current.markup) {
+                                current.eventBus.dispatch('editingaction', { source: null, name: 'redo' });
+                            }
+                        },
+
+                        deleteSelected: function () {
+                            if (current && current.markup) {
+                                current.eventBus.dispatch('editingaction', { source: null, name: 'delete' });
+                            }
                         },
 
                         // { color, thickness, fontSize }: any of them.
                         setStyle: function (style) {
                             Object.keys(style || {}).forEach(function (key) {
-                                toolStyle[key] = style[key];
+                                // The highlighter keeps its own colour (yellow unless changed).
+                                var target =
+                                    key === 'color' && current && current.tool === 'highlight' ? 'highlightColor' : key;
+                                toolStyle[target] = style[key];
                             });
                             if (current && current.markup) applyToolParams(current);
                         },
 
                         style: function () {
                             return {
-                                color: toolStyle.color,
+                                color:
+                                    current && current.tool === 'highlight'
+                                        ? toolStyle.highlightColor
+                                        : toolStyle.color,
                                 thickness: toolStyle.thickness,
                                 fontSize: toolStyle.fontSize
                             };
@@ -3233,27 +3929,62 @@
                     // markups can only go with a decline; the server enforces the same rule.
                     var markupWired = false;
                     var uploadQueue = Promise.resolve();
-                    var declineOnlyNoticeShown = false;
+
+                    var lastShape = 'rect'; // the Shapes button shows the last one used
+                    var TOOL_KEYS = {
+                        v: 'select',
+                        h: 'pan',
+                        p: 'pen',
+                        u: 'highlight',
+                        r: 'rect',
+                        o: 'ellipse',
+                        l: 'line',
+                        a: 'arrow',
+                        c: 'cloud',
+                        t: 'text'
+                    };
+                    var MENU_SHAPES = { rect: 'square', ellipse: 'circle', line: 'line' };
 
                     function wireMarkup() {
                         if (markupWired || markupMode === 'Off') return;
                         markupWired = true;
-                        document.getElementById('markup-bar').style.display = '';
+                        var bar = document.getElementById('markup-bar');
+                        bar.style.display = '';
                         setMarkupStatus('');
-                        document.getElementById('markup-move').addEventListener('click', function () {
-                            DocGenAttachmentViewer.setTool('none');
+                        bar.addEventListener('click', function (e) {
+                            var btn = e.target.closest ? e.target.closest('button') : null;
+                            if (!btn || btn.disabled) return;
+                            e.stopPropagation();
+                            if (btn.dataset.menu) {
+                                toggleMenu(btn);
+                                return;
+                            }
+                            if (btn.dataset.tool) {
+                                chooseTool(btn.dataset.tool);
+                                closeMenus();
+                                return;
+                            }
+                            if (btn.dataset.thickness) {
+                                DocGenAttachmentViewer.setStyle({ thickness: Number(btn.dataset.thickness) });
+                            } else if (btn.dataset.size) {
+                                DocGenAttachmentViewer.setStyle({ fontSize: Number(btn.dataset.size) });
+                            } else if (btn.dataset.color) {
+                                DocGenAttachmentViewer.setStyle({ color: btn.dataset.color });
+                                closeMenus();
+                            } else if (btn.id === 'markup-undo') {
+                                DocGenAttachmentViewer.undo();
+                            } else if (btn.id === 'markup-redo') {
+                                DocGenAttachmentViewer.redo();
+                            } else if (btn.id === 'markup-delete') {
+                                DocGenAttachmentViewer.deleteSelected();
+                            } else if (btn.id === 'markup-clear') {
+                                clearMarks();
+                            }
+                            syncStyleMenu();
                         });
-                        document.getElementById('markup-pen').addEventListener('click', function () {
-                            DocGenAttachmentViewer.setTool('pen');
-                        });
-                        document.getElementById('markup-text').addEventListener('click', function () {
-                            DocGenAttachmentViewer.setTool('text');
-                        });
-                        document.getElementById('markup-undo').addEventListener('click', function () {
-                            DocGenAttachmentViewer.undo();
-                        });
-                        document.getElementById('markup-clear').addEventListener('click', clearMarks);
-                        wireStyleMenu();
+                        document.addEventListener('click', closeMenus);
+                        document.addEventListener('keydown', onToolKey);
+                        syncStyleMenu();
                         window.addEventListener('beforeunload', function (e) {
                             if (hasUnsavedMarks()) {
                                 e.preventDefault();
@@ -3262,48 +3993,70 @@
                         });
                     }
 
-                    // Colour and size, in a small menu like PDF.js's own viewer.
-                    function wireStyleMenu() {
-                        var btn = document.getElementById('markup-style');
-                        var menu = document.getElementById('markup-style-menu');
-                        function open(show) {
-                            menu.style.display = show ? '' : 'none';
-                            btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+                    function chooseTool(tool) {
+                        if (MENU_SHAPES[tool]) {
+                            lastShape = tool;
+                            document
+                                .querySelector('#mk-shapes-icon use')
+                                .setAttribute('href', '#dgi-' + MENU_SHAPES[tool]);
                         }
-                        btn.addEventListener('click', function (e) {
-                            e.stopPropagation();
-                            open(menu.style.display === 'none');
+                        DocGenAttachmentViewer.setTool(tool);
+                    }
+
+                    function toggleMenu(btn) {
+                        var menu = document.getElementById(btn.dataset.menu);
+                        var open = menu.style.display === 'none';
+                        closeMenus();
+                        if (open) {
+                            menu.style.display = '';
+                            btn.classList.add('open');
+                            btn.setAttribute('aria-expanded', 'true');
+                        }
+                    }
+
+                    function closeMenus() {
+                        Array.prototype.forEach.call(document.querySelectorAll('.mk-menu'), function (m) {
+                            m.style.display = 'none';
                         });
-                        menu.addEventListener('click', function (e) {
-                            e.stopPropagation();
-                            var t = e.target.closest ? e.target.closest('button') : null;
-                            if (!t) return;
-                            if (t.dataset.color) DocGenAttachmentViewer.setStyle({ color: t.dataset.color });
-                            if (t.dataset.thickness)
-                                DocGenAttachmentViewer.setStyle({ thickness: Number(t.dataset.thickness) });
-                            if (t.dataset.size) DocGenAttachmentViewer.setStyle({ fontSize: Number(t.dataset.size) });
-                            syncStyleMenu();
+                        Array.prototype.forEach.call(document.querySelectorAll('[data-menu]'), function (b) {
+                            b.classList.remove('open');
+                            b.setAttribute('aria-expanded', 'false');
                         });
-                        document.addEventListener('click', function () {
-                            open(false);
-                        });
-                        document.addEventListener('keydown', function (e) {
-                            if (e.key === 'Escape') open(false);
-                        });
-                        syncStyleMenu();
+                    }
+
+                    // Single-letter tool keys, as in Figma and Bluebeam. PDF.js already handles
+                    // Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y and Delete for the marks.
+                    function onToolKey(e) {
+                        if (e.key === 'Escape') closeMenus();
+                        if (e.ctrlKey || e.metaKey || e.altKey || !e.key || e.key.length !== 1) return;
+                        var t = e.target;
+                        if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName || ''))) return;
+                        var pane = document.getElementById('attachment-pane');
+                        if (currentDoc === 'form' || !pane || pane.offsetParent === null) return;
+                        var tool = TOOL_KEYS[e.key.toLowerCase()];
+                        if (!tool) return;
+                        e.preventDefault();
+                        chooseTool(tool);
                     }
 
                     function syncStyleMenu() {
                         var style = DocGenAttachmentViewer.style();
                         document.getElementById('markup-swatch').style.background = style.color;
-                        var menu = document.getElementById('markup-style-menu');
-                        Array.prototype.forEach.call(menu.querySelectorAll('button'), function (b) {
-                            var on =
-                                (b.dataset.color && b.dataset.color === style.color) ||
-                                (b.dataset.thickness && Number(b.dataset.thickness) === style.thickness) ||
-                                (b.dataset.size && Number(b.dataset.size) === style.fontSize);
-                            b.classList.toggle('active', !!on);
-                        });
+                        Array.prototype.forEach.call(
+                            document.querySelectorAll(
+                                '#markup-bar [data-color], #markup-bar [data-thickness], #markup-bar [data-size]'
+                            ),
+                            function (b) {
+                                var on =
+                                    (b.dataset.color && b.dataset.color === style.color) ||
+                                    (b.dataset.thickness && Number(b.dataset.thickness) === style.thickness) ||
+                                    (b.dataset.size && Number(b.dataset.size) === style.fontSize);
+                                b.classList.toggle('active', !!on);
+                                if (b.getAttribute('role') === 'menuitemradio') {
+                                    b.setAttribute('aria-checked', on ? 'true' : 'false');
+                                }
+                            }
+                        );
                     }
 
                     function setMarkupStatus(text) {
@@ -3316,15 +4069,25 @@
 
                     function syncMarkupBar(z) {
                         if (markupMode === 'Off') return;
-                        var tool = z && z.ready ? z.tool : 'none';
-                        ['move', 'pen', 'text'].forEach(function (name) {
-                            var btn = document.getElementById('markup-' + name);
-                            var on = (name === 'move' ? 'none' : name) === tool;
-                            btn.classList.toggle('active', on);
-                            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-                            btn.disabled = !(z && z.ready);
-                        });
-                        document.getElementById('markup-undo').disabled = !(z && z.ready && z.canUndo);
+                        var ready = !!(z && z.ready);
+                        var tool = ready ? z.tool : 'pan';
+                        Array.prototype.forEach.call(
+                            document.querySelectorAll('#markup-bar [data-tool]'),
+                            function (b) {
+                                var on = b.dataset.tool === tool;
+                                b.classList.toggle('active', on);
+                                if (b.hasAttribute('aria-pressed'))
+                                    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+                                b.disabled = !ready;
+                            }
+                        );
+                        var shapes = document.getElementById('mk-shapes');
+                        shapes.classList.toggle('active', !!MENU_SHAPES[tool]);
+                        shapes.disabled = !ready;
+                        document.getElementById('markup-undo').disabled = !(ready && z.canUndo);
+                        document.getElementById('markup-redo').disabled = !(ready && z.canRedo);
+                        document.getElementById('markup-delete').disabled = !(ready && z.hasSelection);
+                        syncStyleMenu(); // the swatch shows the highlighter's colour while it's the tool
                         var a = currentDoc !== 'form' ? currentDoc : null;
                         document.getElementById('markup-clear').disabled = !(a && isMarkedUp(a));
                         syncDocNav();
@@ -3368,23 +4131,16 @@
                     }
 
                     // The action bar follows the markups: under "Decline only", once there are marks,
-                    // signing is off and Decline becomes the main action.
+                    // signing is off ("Clear your marks to approve") and Decline becomes the main action.
                     function refreshActionBar() {
                         refreshGuidedStatus();
                         var decline = document.getElementById('btn-decline');
                         var blocked = declineOnlyBlocked();
                         decline.classList.toggle('primary', blocked);
                         decline.textContent = blocked ? 'Decline with markups' : 'Decline';
-                        if (blocked && !declineOnlyNoticeShown) {
-                            declineOnlyNoticeShown = true;
-                            showMarkupNotice(
-                                'Markups go with a decline: approving here means approving the documents as they ' +
-                                    'are. To approve, clear your marks.'
-                            );
-                        } else if (!hasAnyMarks()) {
-                            declineOnlyNoticeShown = false;
-                            showMarkupNotice('');
-                        }
+                        // The buttons and the toolbar note say why; a notice line here would push the
+                        // drawing down under the signer's pen.
+                        if (!hasAnyMarks()) showMarkupNotice('');
                     }
 
                     // Save the marks on the document on show into its marked-up copy, and start
@@ -3442,12 +4198,12 @@
                             clearArmedUntil = Date.now() + 4000;
                             label.textContent = 'Click again to remove';
                             setTimeout(function () {
-                                if (Date.now() >= clearArmedUntil) label.textContent = 'Clear my marks';
+                                if (Date.now() >= clearArmedUntil) label.textContent = 'Clear all';
                             }, 4100);
                             return;
                         }
                         clearArmedUntil = 0;
-                        label.textContent = 'Clear my marks';
+                        label.textContent = 'Clear all';
                         delete markupBytes[a.index];
                         delete markupUploaded[a.index];
                         var hadDraft = !!a.markedUpAt;
