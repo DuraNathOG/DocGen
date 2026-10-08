@@ -58,6 +58,8 @@ public inherited sharing class DocGenSignatureAttachments {
     private static final String PDF_HEADER_BASE64 = 'JVBERi0'; // "%PDF-"
     // A markup saved in the background is a draft until the signer approves or declines.
     private static final String DRAFT_SUFFIX = ' (draft)';
+    // reviewSummary names at most this many documents per list, then "and N more".
+    private static final Integer SUMMARY_NAMES = 10;
 
     private static final Set<String> ATTACHMENT_FIELDS = new Set<String>{
         'Signature_Request__c',
@@ -631,6 +633,52 @@ public inherited sharing class DocGenSignatureAttachments {
             entry.put('markedUpBy', markedUpBy == null ? new List<Map<String, Object>>() : markedUpBy);
         }
         return register;
+    }
+
+    /**
+     * What one signer's response covered, for the sender, e.g. on a decline: "Attached documents:
+     * 1 of 3 opened. Not opened: "B" (v2), "C" (v1). Marked up: "A" (v1)." Blank when the request
+     * has no attached documents. A document counts as opened once its first page was on screen,
+     * which is all the page records.
+     */
+    public static String reviewSummary(Id requestId, Id signerId) {
+        List<Map<String, Object>> manifest = manifestForSigner(requestId, signerId);
+        if (manifest.isEmpty() || signerId == null) {
+            return '';
+        }
+        List<String> notOpened = new List<String>();
+        List<String> markedUp = new List<String>();
+        for (Map<String, Object> entry : manifest) {
+            String name = '"' + (String) entry.get('title') + '"';
+            if (entry.get('version') != null) {
+                name += ' (v' + entry.get('version') + ')';
+            }
+            if (entry.get('viewedAt') == null) {
+                notOpened.add(name);
+            }
+            if (entry.get('markedUpAt') != null) {
+                markedUp.add(name);
+            }
+        }
+        Integer total = manifest.size();
+        String summary = 'Attached documents: ' + (total - notOpened.size()) + ' of ' + total + ' opened.';
+        if (!notOpened.isEmpty()) {
+            summary += ' Not opened: ' + summaryList(notOpened) + '.';
+        }
+        if (!markedUp.isEmpty()) {
+            summary += ' Marked up: ' + summaryList(markedUp) + '.';
+        }
+        return summary;
+    }
+
+    private static String summaryList(List<String> names) {
+        Integer shown = Math.min(names.size(), SUMMARY_NAMES);
+        List<String> head = new List<String>();
+        for (Integer i = 0; i < shown; i++) {
+            head.add(names[i]);
+        }
+        String text = String.join(head, ', ');
+        return names.size() > shown ? text + ' and ' + (names.size() - shown) + ' more' : text;
     }
 
     /**

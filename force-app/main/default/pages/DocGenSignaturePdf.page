@@ -913,6 +913,51 @@
                     background: #ea001e;
                     color: #fff;
                 }
+                .decline-review {
+                    margin: 0 0 1rem;
+                }
+                .decline-review-list {
+                    list-style: none;
+                    margin: 0;
+                    padding: 0;
+                    border: 1px solid #e5e5e5;
+                    border-radius: 4px;
+                    max-height: 40vh;
+                    overflow-y: auto;
+                }
+                .decline-review-list li {
+                    display: flex;
+                    align-items: baseline;
+                    gap: 0.75rem;
+                    padding: 0.45rem 0.75rem;
+                    font-size: 0.8125rem;
+                    border-top: 1px solid #f3f2f2;
+                }
+                .decline-review-list li:first-child {
+                    border-top: 0;
+                }
+                .decline-review-list .dr-name {
+                    flex: 1;
+                    min-width: 0;
+                    overflow-wrap: anywhere;
+                }
+                .decline-review-list .dr-state {
+                    white-space: nowrap;
+                    color: #2e844a;
+                }
+                .decline-review-list .dr-state.unopened {
+                    color: #8c4b02;
+                    font-weight: 600;
+                }
+                .decline-review-warning {
+                    margin: 0.75rem 0 0;
+                    padding: 0.6rem 0.75rem;
+                    background: #fef1e8;
+                    border-left: 4px solid #dd7a01;
+                    border-radius: 0 4px 4px 0;
+                    color: #5a3600;
+                    font-size: 0.875rem;
+                }
                 @media (max-width: 700px) {
                     .markup-note,
                     .mk-clear-label {
@@ -1524,6 +1569,16 @@
                     <div class="sig-card" style="max-width: 480px">
                         <h2 style="color: #ea001e">Decline Signature</h2>
                         <p class="subtitle">Are you sure you want to decline this signature request?</p>
+                        <!-- #412 — what this decline covers: each attached document, opened or not. -->
+                        <div id="decline-review" class="decline-review" style="display: none">
+                            <ul id="decline-review-list" class="decline-review-list"></ul>
+                            <p
+                                id="decline-review-warning"
+                                class="decline-review-warning"
+                                style="display: none"
+                                role="alert"
+                            ></p>
+                        </div>
                         <p id="decline-markup-note" class="subtitle" style="display: none"></p>
                         <p
                             id="decline-markup-error"
@@ -1542,6 +1597,9 @@
                         </div>
                         <div class="btn-row">
                             <button id="btn-decline-cancel" class="btn" type="button">Go Back</button>
+                            <button id="btn-decline-review" class="btn btn-brand" type="button" style="display: none">
+                                Review the rest first
+                            </button>
                             <button id="btn-decline-confirm" class="btn btn-destructive" type="button">
                                 Confirm Decline
                             </button>
@@ -3411,10 +3469,16 @@
                                   (n === 1 ? ' document' : ' documents') +
                                   ' will be saved to the record with your decline.'
                                 : '';
+                            showDeclineReview();
                             showState('decline');
                         });
                         document.getElementById('btn-decline-cancel').addEventListener('click', function () {
                             showState('pdf');
+                        });
+                        document.getElementById('btn-decline-review').addEventListener('click', function () {
+                            showState('pdf');
+                            var remaining = unopenedAttachments();
+                            if (remaining.length) showDocument(remaining[0]);
                         });
                         document.getElementById('btn-decline-confirm').addEventListener('click', handleDecline);
 
@@ -3942,7 +4006,7 @@
                                     a.viewedAt = result.viewedAt || new Date().toISOString();
                                     syncDocNav();
                                     refreshAttachmentStatus();
-                                    refreshGuidedStatus();
+                                    refreshActionBar();
                                     return;
                                 }
                                 if (attempt < 3) {
@@ -4175,12 +4239,13 @@
                     }
 
                     // The action bar follows the markups: under "Decline only", once there are marks,
-                    // signing is off ("Clear your marks to approve") and Decline becomes the main action.
+                    // signing is off ("Clear your marks to approve") and, once every attached document
+                    // has been opened, Decline becomes the main action.
                     function refreshActionBar() {
                         refreshGuidedStatus();
                         var decline = document.getElementById('btn-decline');
                         var blocked = declineOnlyBlocked();
-                        decline.classList.toggle('primary', blocked);
+                        decline.classList.toggle('primary', blocked && !unopenedAttachments().length);
                         decline.textContent = blocked ? 'Decline with markups' : 'Decline';
                         // The buttons and the toolbar note say why; a notice line here would push the
                         // drawing down under the signer's pen.
@@ -4628,15 +4693,16 @@
                         }
                         var unopened = unopenedAttachments().length;
                         btn.disabled = false;
-                        if (declineOnlyBlocked()) {
+                        if (unopened) {
+                            // #412 — the signer reviews every attached document before signing,
+                            // whichever side of the form they sit on. It stays the main action once
+                            // they have marks too, so a decline with markups covers the whole set.
+                            btn.textContent =
+                                'Review attached document' + (unopened === 1 ? '' : 's') + ' (' + unopened + ' left)';
+                        } else if (declineOnlyBlocked()) {
                             // #412 M2 — under "Decline only", markups rule out approving.
                             btn.textContent = 'Clear your marks to approve';
                             btn.disabled = true;
-                        } else if (unopened) {
-                            // #412 — the signer reviews every attached document before signing,
-                            // whichever side of the form they sit on.
-                            btn.textContent =
-                                'Review attached document' + (unopened === 1 ? '' : 's') + ' (' + unopened + ' left)';
                         } else if (pending < 0) {
                             btn.textContent = 'Finish & Submit';
                         } else {
@@ -6432,6 +6498,63 @@
                     }
 
                     // ===== DECLINE =====
+                    // #412 — what the decline covers. Declining isn't gated: a signer may stop at the
+                    // first problem. But they see which attached documents they haven't opened before
+                    // they confirm, and the sender's decline notice lists them too.
+                    function showDeclineReview() {
+                        var box = document.getElementById('decline-review');
+                        var list = document.getElementById('decline-review-list');
+                        var warning = document.getElementById('decline-review-warning');
+                        var left = hasAttachments() ? unopenedAttachments().length : 0;
+                        box.style.display = hasAttachments() ? '' : 'none';
+                        while (list.firstChild) list.removeChild(list.firstChild);
+                        docOrder.forEach(function (entry) {
+                            if (entry === 'form') return;
+                            var li = document.createElement('li');
+                            var name = document.createElement('span');
+                            name.className = 'dr-name';
+                            name.textContent =
+                                (entry.title || 'Document') + (entry.version ? ' (v' + entry.version + ')' : '');
+                            var state = document.createElement('span');
+                            state.className = 'dr-state' + (entry.viewedAt ? '' : ' unopened');
+                            state.textContent = !entry.viewedAt
+                                ? '○ Not opened'
+                                : isMarkedUp(entry)
+                                  ? '✎ Marked up'
+                                  : '✓ Opened';
+                            li.appendChild(name);
+                            li.appendChild(state);
+                            list.appendChild(li);
+                        });
+                        warning.style.display = left ? '' : 'none';
+                        warning.textContent = left ? declineWarning(left, attachments.length) : '';
+                        document.getElementById('btn-decline-cancel').style.display = left ? 'none' : '';
+                        document.getElementById('btn-decline-review').style.display = left ? '' : 'none';
+                        document.getElementById('btn-decline-confirm').textContent = declineConfirmLabel();
+                    }
+
+                    function declineWarning(left, total) {
+                        if (left < total) {
+                            return (
+                                "You haven't opened " +
+                                left +
+                                ' of the ' +
+                                total +
+                                ' attached documents, so your comments only cover the ones you opened. ' +
+                                "The sender will see which ones you didn't open."
+                            );
+                        }
+                        return total === 1
+                            ? "You haven't opened the attached document. The sender will see that you declined without opening it."
+                            : "You haven't opened any of the " +
+                                  total +
+                                  ' attached documents. The sender will see that you declined without opening them.';
+                    }
+
+                    function declineConfirmLabel() {
+                        return hasAttachments() && unopenedAttachments().length ? 'Decline anyway' : 'Confirm Decline';
+                    }
+
                     function handleDecline() {
                         var reason = document.getElementById('decline-reason').value.trim();
                         var btn = document.getElementById('btn-decline-confirm');
@@ -6464,7 +6587,7 @@
                             })
                             .catch(function (err) {
                                 btn.disabled = false;
-                                btn.textContent = 'Confirm Decline';
+                                btn.textContent = declineConfirmLabel();
                                 var errEl = document.getElementById('decline-markup-error');
                                 errEl.textContent =
                                     err && err.userMessage
@@ -6483,7 +6606,7 @@
                             ua,
                             function (result, event) {
                                 btn.disabled = false;
-                                btn.textContent = 'Confirm Decline';
+                                btn.textContent = declineConfirmLabel();
                                 if (event.status && result && result.success) {
                                     document.getElementById('error-message').textContent =
                                         'You have declined this signature request.';

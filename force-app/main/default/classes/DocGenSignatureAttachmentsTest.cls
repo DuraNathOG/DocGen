@@ -587,6 +587,33 @@ private class DocGenSignatureAttachmentsTest {
     }
 
     @IsTest
+    static void declineEmail_saysWhichDocumentsWereOpenedAndMarkedUp() {
+        Id tplId = markupTemplate('Decline only');
+        send(tplId, oneSigner(), drawingIds(), 'Before', false);
+        DocGen_Signer__c s = signer(tplId);
+
+        Test.startTest();
+        DocGenSignatureAttachments.serve(s.Secure_Token__c, 0);
+        DocGenSignatureAttachments.markViewed(s.Secure_Token__c, 0);
+        DocGenSignatureAttachments.saveMarkup(s.Secure_Token__c, 0, markedUp('bay 3'));
+        DocGenSignatureController.declineSignature(s.Secure_Token__c, 'Bay 3 is wrong', '1.2.3.4', 'JUnit/1.0');
+        String message = DocGenSignatureEmailService.declineMessage(s.Signature_Request__c, s.Id, 'Bay 3 is wrong');
+        String noReason = DocGenSignatureEmailService.declineMessage(s.Signature_Request__c, s.Id, null);
+        Test.stopTest();
+
+        Assert.isTrue(message.startsWith('Reason: Bay 3 is wrong\n\n'), message);
+        Assert.isTrue(message.contains('Attached documents: 1 of 2 opened.'), message);
+        Assert.isTrue(message.contains('Not opened: "GA-002 Sections"'), message);
+        Assert.isTrue(message.contains('Marked up: "GA-001 General Arrangement"'), message);
+        Assert.isTrue(noReason.startsWith('Attached documents: '), noReason);
+        Assert.areEqual(
+            '',
+            DocGenSignatureAttachments.reviewSummary(account().Id, s.Id),
+            'No attached documents, no summary'
+        );
+    }
+
+    @IsTest
     static void markViewed_isScopedToTheTokensOwnRequest() {
         Id tplId = createTaggedTemplate();
         send(tplId, oneSigner(), drawingIds(), 'Before', false);

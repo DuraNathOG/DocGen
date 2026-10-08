@@ -349,9 +349,28 @@ public without sharing class DocGenSignatureEmailService {
                 'SignerName' => signer.Signer_Name__c,
                 'RoleName' => signer.Role_Name__c,
                 'RequestId' => String.valueOf(requestId),
-                'Message' => String.isNotBlank(reason) ? ('Reason: ' + reason) : ''
+                'Message' => declineMessage(requestId, signer.Id, reason)
             }
         );
+    }
+
+    // The signer's reason, then (#412) what the decline covered: which attached documents they
+    // opened and marked up, so the sender knows whether the comments cover the whole set.
+    @TestVisible
+    private static String declineMessage(Id requestId, Id signerId, String reason) {
+        List<String> parts = new List<String>();
+        if (String.isNotBlank(reason)) {
+            parts.add('Reason: ' + reason);
+        }
+        try {
+            String summary = DocGenSignatureAttachments.reviewSummary(requestId, signerId);
+            if (String.isNotBlank(summary)) {
+                parts.add(summary);
+            }
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN, 'Portwood: decline review summary failed: ' + e.getMessage());
+        }
+        return String.join(parts, '\n\n');
     }
 
     /**
