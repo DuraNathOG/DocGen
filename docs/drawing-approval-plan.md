@@ -195,7 +195,7 @@ Goal: replace estimates with measurements and de-risk real drawings.
 
 ### Signing page (`DocGenSignaturePdf.page`)
 
-- [x] Multi-document viewer: a document switcher (prev / list / next) with ticks, and a separate attachment pane. Each drawing is fetched on open with a progress bar, SHA-256 checked in the browser against the server's header, and rendered page by page; switching away frees its canvases and PDF.js document. The signing document keeps its own page set, so anchors and stamping are untouched.
+- [x] Multi-document viewer: a document switcher (prev / list / next) with ticks (M2 replaced the list with a tab per document, each showing opened, not opened or marked up, under a banner saying how many are left to review), and a separate attachment pane. Each drawing is fetched on open with a progress bar, SHA-256 checked in the browser against the server's header, and rendered page by page; switching away frees its canvases and PDF.js document. The signing document keeps its own page set, so anchors and stamping are untouched.
 - [x] **Attachment pane runs on PDF.js's viewer component** (`pdf_viewer.js` from the same `pdfjs-dist@4.7.76` legacy build; added 2026-10-02). It replaces a hand-rolled renderer, and gives:
     - lazy rendering of the pages in view, with a bounded canvas cache;
     - device-resolution output, capped at 16.7 MP;

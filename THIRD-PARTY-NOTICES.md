@@ -13,7 +13,7 @@ when versions change, and disclose it in AppExchange security materials.
 | ------------ | ------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
 | PDF.js       | 4.7.76 (legacy ESM build) | Apache License 2.0 | Renders the document + text layer in the guided signing viewer so sign-spots can be located. Its viewer component (`pdf_viewer.js`, `.css`, `images/`) shows attached documents (#412): lazy page rendering, zoom and pan. | https://github.com/mozilla/pdf.js      |
 | pdf-lib      | 1.17.1 (UMD build)        | MIT                | Composites drawn/typed signatures onto the signed PDF in the browser at the located sign-spots.                                                                                                                            | https://github.com/Hopding/pdf-lib     |
-| Tabler Icons | 3.49.0 (outline SVGs)     | MIT                | The markup toolbar's icons on the signing page (#412 M2): 15 outline icons inlined as an SVG sprite in `DocGenSignaturePdf.page` (no script, nothing loaded from outside the page).                                        | https://github.com/tabler/tabler-icons |
+| Tabler Icons | 3.49.0 (outline SVGs)     | MIT                | The signing page's markup toolbar and attached-document tabs (#412 M2): 19 outline icons inlined as SVG sprites in `DocGenSignaturePdf.page` (no script, nothing loaded from outside the page).                            | https://github.com/tabler/tabler-icons |
 
 ## Security notes
 
