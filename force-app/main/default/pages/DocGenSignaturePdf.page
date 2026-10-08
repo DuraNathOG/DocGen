@@ -1318,7 +1318,7 @@
                                         class="mk-btn"
                                         type="button"
                                         data-tool="text"
-                                        data-tip="Text (T)"
+                                        data-tip="Text (T): Enter for a new line"
                                         aria-label="Text"
                                         aria-pressed="false"
                                     >
@@ -2410,6 +2410,7 @@
                     // every point is converted to PDF coordinates, so it lands exactly where it was
                     // drawn at any zoom. Each path is [[p0, c1, c2, p1], ...].
                     var KAPPA = 0.5522847498;
+                    var MIN_SHAPE_BOX = 24; // CSS px; see shapeData
 
                     function seg(a, b) {
                         return [
@@ -2558,6 +2559,20 @@
                             });
                             return { bezier: bezier, points: bezier.slice() };
                         });
+                        // PDF.js sizes a rebuilt mark against a minimum of 16 px each way, so a box
+                        // narrower than that (a vertical or horizontal line) would be drawn shrunk to
+                        // almost nothing. Keep the box at least MIN_SHAPE_BOX px each way, centred.
+                        var minBox = MIN_SHAPE_BOX / viewport.scale;
+                        if (box[2] - box[0] < minBox) {
+                            var growX = (minBox - (box[2] - box[0])) / 2;
+                            box[0] -= growX;
+                            box[2] += growX;
+                        }
+                        if (box[3] - box[1] < minBox) {
+                            var growY = (minBox - (box[3] - box[1])) / 2;
+                            box[1] -= growY;
+                            box[3] += growY;
+                        }
                         var pad = thickness / 2;
                         return {
                             annotationType: st.core.AnnotationEditorType.INK,
@@ -2660,6 +2675,24 @@
                             });
                     }
 
+                    // A PDF.js text box doesn't wrap: it grows to the right as the signer types, and
+                    // only moves back inside the page once the note is finished. Move it while they
+                    // type, so the words never run off the edge of the drawing out of sight.
+                    function keepTextOnPage(st, box) {
+                        // PDF.js gives each mark's element its editor id.
+                        var editor = st.uiManager && box.id ? st.uiManager.getEditor(box.id) : null;
+                        var area = box.closest('.annotationEditorLayer');
+                        if (!editor || !area || editor.div !== box) return;
+                        var b = box.getBoundingClientRect();
+                        var a = area.getBoundingClientRect();
+                        var overX = b.right - a.right;
+                        var overY = b.bottom - a.bottom;
+                        if (overX <= 0 && overY <= 0) return;
+                        if (overX > 0) editor.x = Math.max(0, editor.x - overX / a.width);
+                        if (overY > 0) editor.y = Math.max(0, editor.y - overY / a.height);
+                        editor.fixAndSetPosition();
+                    }
+
                     // Drag to draw a shape. Capture phase on the scroll box, so PDF.js's pen never
                     // sees these events. A second finger cancels the shape: that's a pinch.
                     function wireShapeInput(st) {
@@ -2742,6 +2775,14 @@
                     function wireInput(st) {
                         var scroller = st.scroller;
                         wireShapeInput(st);
+                        scroller.addEventListener(
+                            'input',
+                            function (e) {
+                                var box = e.target.closest ? e.target.closest('.freeTextEditor') : null;
+                                if (box) keepTextOnPage(st, box);
+                            },
+                            true
+                        );
 
                         // Ctrl/⌘ + wheel, and trackpad pinch (browsers report it as ctrl+wheel):
                         // zoom the drawing around the pointer instead of the whole page. A plain
@@ -2957,6 +2998,9 @@
                                             // the pen and text settings are sent then, not before.
                                             eventBus.on('annotationeditormodechanged', function () {
                                                 applyToolParams(st);
+                                            });
+                                            eventBus.on('annotationeditoruimanager', function (e) {
+                                                st.uiManager = e.uiManager;
                                             });
                                             // The first mark enables Clear.
                                             pdf.annotationStorage.onSetModified = function () {
