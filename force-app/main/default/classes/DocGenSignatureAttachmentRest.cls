@@ -13,10 +13,13 @@
  * DocGenSignatureAttachments.serve; this class only translates to and from HTTP.
  *
  *   POST {Site}/services/apexrest/[ns/]signature-attachment?index=N   (#412 M2)
- *   X-Portwood-Token: <token>, body: the marked-up PDF (raw bytes)
+ *   X-Portwood-Token: <token>, X-Portwood-Markup-Base: <SHA-256 of the copy the marks were added
+ *   to>, body: the marked-up PDF (raw bytes)
  *
- * The POST saves the signer's marked-up copy of document N to the related record as a new file
- * (DocGenSignatureAttachments.saveMarkup holds the gating).
+ * The POST saves the signer's marked-up copy of document N to the related record, replacing their
+ * previous draft; DELETE (same headers) withdraws the draft. DocGenSignatureAttachments.saveMarkup
+ * and withdrawMarkup hold the gating; the base header lets them refuse a write built on a copy
+ * another window has since replaced.
  *
  * Both write evidence (the GET: the SHA-256 on first serve and the signer's Fetched At; the POST:
  * the markup). Neither is CSRF-reachable, because the token has to arrive in a custom header,
@@ -26,6 +29,8 @@
 global without sharing class DocGenSignatureAttachmentRest { // NOPMD AvoidGlobalModifier — Apex REST resources must be global
     @TestVisible
     private static final String TOKEN_HEADER = 'X-Portwood-Token';
+    @TestVisible
+    private static final String MARKUP_BASE_HEADER = 'X-Portwood-Markup-Base';
 
     @HttpGet
     global static void fetchAttachment() {
@@ -71,7 +76,12 @@ global without sharing class DocGenSignatureAttachmentRest { // NOPMD AvoidGloba
 
         DocGenSignatureAttachments.GuestResult result;
         try {
-            result = DocGenSignatureAttachments.saveMarkup(header(req, TOKEN_HEADER), indexParam(req), req.requestBody);
+            result = DocGenSignatureAttachments.saveMarkup(
+                header(req, TOKEN_HEADER),
+                indexParam(req),
+                req.requestBody,
+                header(req, MARKUP_BASE_HEADER)
+            );
         } catch (Exception e) {
             DocGenErrorLogger.log('DocGenSignatureAttachmentRest', e);
             result = new DocGenSignatureAttachments.GuestResult();
@@ -98,7 +108,11 @@ global without sharing class DocGenSignatureAttachmentRest { // NOPMD AvoidGloba
         res.addHeader('Content-Type', 'application/json');
         DocGenSignatureAttachments.GuestResult result;
         try {
-            result = DocGenSignatureAttachments.withdrawMarkup(header(req, TOKEN_HEADER), indexParam(req));
+            result = DocGenSignatureAttachments.withdrawMarkup(
+                header(req, TOKEN_HEADER),
+                indexParam(req),
+                header(req, MARKUP_BASE_HEADER)
+            );
         } catch (Exception e) {
             DocGenErrorLogger.log('DocGenSignatureAttachmentRest', e);
             result = new DocGenSignatureAttachments.GuestResult();

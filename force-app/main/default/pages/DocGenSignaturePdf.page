@@ -3687,6 +3687,10 @@
                     var markupMode = 'Off'; // Off / Decline only / Approve or decline
                     var markupBytes = {};
                     var markupUploaded = {};
+                    // markupBase[index]: the SHA-256 of the signer's draft as the server holds it. New
+                    // marks are added to that copy (or to the original, sha256 on the manifest entry),
+                    // and each save or withdrawal says which, so a second window can't overwrite it.
+                    var markupBase = {};
                     var shownDoc = null; // the attachment the viewer is showing (null while loading)
                     var ATTACHMENT_CACHE_BYTES = 48 * 1024 * 1024;
                     var formRendered = (function () {
@@ -4559,21 +4563,19 @@
                         var hadDraft = !!a.markedUpAt;
                         a.markedUpAt = null;
                         loadAttachment(a); // the original, without marks
-                        if (hadDraft) {
-                            // Withdraw the saved draft too (after any upload still in flight).
-                            uploadQueue = uploadQueue.then(function () {
-                                return withdrawMarkup(a).catch(function (err) {
-                                    a.markedUpAt = a.markedUpAt || new Date().toISOString();
-                                    setMarkupStatus(
-                                        err && err.userMessage
-                                            ? err.userMessage
-                                            : 'Your saved markup could not be removed.'
-                                    );
-                                    syncDocNav();
-                                    refreshActionBar();
-                                });
+                        // Withdraw the saved draft too, once any upload on its way has landed: that
+                        // may be this document's first save, so there was no draft when they cleared.
+                        uploadQueue = uploadQueue.then(function () {
+                            if (!hadDraft && !markupBase[a.index]) return null; // nothing saved
+                            return withdrawMarkup(a).catch(function (err) {
+                                a.markedUpAt = a.markedUpAt || new Date().toISOString();
+                                setMarkupStatus(
+                                    err && err.userMessage ? err.userMessage : 'Your saved markup could not be removed.'
+                                );
+                                syncDocNav();
+                                refreshActionBar();
                             });
-                        }
+                        });
                         syncDocNav();
                         refreshActionBar();
                     }
@@ -4603,7 +4605,11 @@
 
                     function uploadMarkup(a) {
                         var sending = markupBytes[a.index];
-                        return markupRequest(a, 'POST', sending).then(function () {
+                        return markupRequest(a, 'POST', sending).then(function (json) {
+                            markupBase[a.index] = json && json.sha256 ? json.sha256.toLowerCase() : null;
+                            // Cleared while this was on its way: the withdrawal queued behind it
+                            // removes it again.
+                            if (!markupBytes[a.index]) return;
                             // Only the copy actually sent counts as saved; newer marks go next time.
                             if (markupBytes[a.index] === sending) markupUploaded[a.index] = true;
                             a.markedUpAt = new Date().toISOString();
@@ -4612,13 +4618,18 @@
                     }
 
                     function withdrawMarkup(a) {
-                        return markupRequest(a, 'DELETE', null);
+                        return markupRequest(a, 'DELETE', null).then(function () {
+                            delete markupBase[a.index];
+                        });
                     }
 
                     function markupRequest(a, method, body) {
                         var init = {
                             method: method,
-                            headers: { 'X-Portwood-Token': token },
+                            headers: {
+                                'X-Portwood-Token': token,
+                                'X-Portwood-Markup-Base': markupBase[a.index] || a.sha256 || ''
+                            },
                             cache: 'no-store',
                             credentials: 'same-origin'
                         };
@@ -4668,6 +4679,7 @@
                                     }
                                     markupBytes[a.index] = bytes;
                                     markupUploaded[a.index] = true;
+                                    markupBase[a.index] = serverSha || hex;
                                     return bytes;
                                 });
                             });

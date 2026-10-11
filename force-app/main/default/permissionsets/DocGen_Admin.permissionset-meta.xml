@@ -1159,6 +1159,11 @@
     </fieldPermissions>
     <fieldPermissions>
         <editable>true</editable>
+        <field>DocGen_Signer_Attachment__c.Markup_Saves__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
         <field>DocGen_Signer_Attachment__c.Markup_Sha256__c</field>
         <readable>true</readable>
     </fieldPermissions>

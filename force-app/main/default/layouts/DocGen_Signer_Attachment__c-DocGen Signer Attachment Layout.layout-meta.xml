@@ -34,6 +34,10 @@
             </layoutItems>
             <layoutItems>
                 <behavior>Readonly</behavior>
+                <field>Markup_Saves__c</field>
+            </layoutItems>
+            <layoutItems>
+                <behavior>Readonly</behavior>
                 <field>Markup_Submitted_At__c</field>
             </layoutItems>
             <layoutItems>

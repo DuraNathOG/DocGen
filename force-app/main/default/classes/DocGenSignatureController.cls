@@ -2017,6 +2017,8 @@ public without sharing class DocGenSignatureController {
             DocGen_Template__c.sObjectType,
             new Set<String>{ 'Hide_Signer_Decline__c' }
         );
+        // FOR UPDATE: #412 M2, so the signer's markup saves can't interleave with this decline
+        // (DocGenSignatureAttachments.lockSigner).
         /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
         List<DocGen_Signer__c> signers = [
             SELECT
@@ -2026,6 +2028,7 @@ public without sharing class DocGenSignatureController {
                 Signer_Email__c,
                 Signature_Request__c,
                 Signature_Request__r.Expires_At__c,
+                Signature_Request__r.Status__c,
                 Signature_Request__r.Template__c,
                 Signature_Request__r.Template__r.Hide_Signer_Decline__c,
                 Role_Name__c,
@@ -2035,6 +2038,7 @@ public without sharing class DocGenSignatureController {
             WHERE Secure_Token__c = :token
             WITH SYSTEM_MODE
             LIMIT 1
+            FOR UPDATE
         ]; // NOPMD ApexCRUDViolation
 
         if (signers.isEmpty()) {
@@ -2057,6 +2061,13 @@ public without sharing class DocGenSignatureController {
         if (signer.Status__c == 'Declined') {
             result.put('success', false);
             result.put('message', 'You have already declined this request.');
+            return result;
+        }
+        // The request itself may be finished: cancelled by the sender, or declined or completed by
+        // another signer. Declining it then would reopen it as Declined.
+        if (new Set<String>{ 'Signed', 'Cancelled', 'Declined' }.contains(signer.Signature_Request__r.Status__c)) {
+            result.put('success', false);
+            result.put('message', 'This signature request is no longer active.');
             return result;
         }
 
@@ -2914,6 +2925,8 @@ public without sharing class DocGenSignatureController {
                 'Secure_Token__c'
             }
         );
+        // FOR UPDATE: #412 M2, so the signer's markup saves can't interleave with this approval
+        // (DocGenSignatureAttachments.lockSigner).
         /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
         List<DocGen_Signer__c> signers = [
             SELECT
@@ -2935,6 +2948,7 @@ public without sharing class DocGenSignatureController {
             WHERE Secure_Token__c = :token
             WITH SYSTEM_MODE
             LIMIT 1
+            FOR UPDATE
         ];
         if (signers.isEmpty()) {
             throw new AuraHandledException('Signer not found.');
