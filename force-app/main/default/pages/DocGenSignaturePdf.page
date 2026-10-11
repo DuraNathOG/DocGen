@@ -162,6 +162,7 @@
                 /* Buttons */
                 .btn-row {
                     display: flex;
+                    flex-wrap: wrap;
                     gap: 0.5rem;
                     justify-content: flex-end;
                     margin-top: 1rem;
@@ -1271,12 +1272,12 @@
                         <div id="markup-notice" class="doc-status pending" style="display: none" role="alert"></div>
 
                         <!-- DocGenPdfViewer.render() renders into this container. -->
-                        <div class="pdf-viewer" id="pdf-viewer-container">
+                        <div class="pdf-viewer" id="pdf-viewer-container" role="tabpanel">
                             <div class="spinner-container"><div class="spinner"></div></div>
                         </div>
 
                         <!-- #412 DocGenAttachmentViewer.render() shows one attached document here. -->
-                        <div id="attachment-pane" class="attachment-pane" style="display: none">
+                        <div id="attachment-pane" class="attachment-pane" style="display: none" role="tabpanel">
                             <div class="attachment-toolbar">
                                 <span id="attachment-meta" class="attachment-meta"></span>
                                 <button id="att-zoom-out" class="btn btn-icon" type="button" aria-label="Zoom out">
@@ -1665,7 +1666,7 @@
                                         <svg class="mk-icon" aria-hidden="true"><use href="#dgi-eraser"></use></svg
                                         ><span id="markup-clear-label" class="mk-clear-label">Clear all</span>
                                     </button>
-                                    <span id="markup-note" class="markup-note"></span>
+                                    <span id="markup-note" class="markup-note" role="status" aria-live="polite"></span>
                                 </div>
                             </div>
                             <div class="pdf-viewer attachment-viewer" id="attachment-viewer-container"></div>
@@ -3207,9 +3208,14 @@
                                             eventBus.on('annotationeditoruimanager', function (e) {
                                                 st.uiManager = e.uiManager;
                                             });
-                                            // The first mark enables Clear.
+                                            // The first mark enables Clear. PDF.js resets "modified" when
+                                            // it saves, so st.changed means marks the page hasn't saved.
                                             pdf.annotationStorage.onSetModified = function () {
+                                                st.changed = true;
                                                 notify(st);
+                                            };
+                                            pdf.annotationStorage.onResetModified = function () {
+                                                st.changed = false;
                                             };
                                             eventBus.on('scalechanging', function (e) {
                                                 st.fitMode = e.presetValue === 'page-width';
@@ -3274,6 +3280,10 @@
                                 return;
                             }
                             cancelShape(st);
+                            // A tool's settings go to the selected marks too (that's how the colour
+                            // and width menus restyle one), so let go of the selection first, or
+                            // picking the highlighter would turn a selected pen line yellow.
+                            if (st.uiManager) st.uiManager.unselectAll();
                             st.tool = tool; // before the switch: its event reads it
                             st.viewer.annotationEditorMode = { mode: editorMode(st, tool) };
                             var drawing = tool !== 'pan' && tool !== 'select';
@@ -3329,6 +3339,11 @@
                             return !!(current && current.markup && current.pdf.annotationStorage.size > 0);
                         },
 
+                        // Whether those marks changed since they were last saved (markedBytes).
+                        hasChanges: function () {
+                            return !!(current && current.markup && current.changed);
+                        },
+
                         // The document on show with its marks, as PDF.js saves it: the loaded bytes
                         // unchanged, with the annotations appended (an incremental update).
                         markedBytes: function () {
@@ -3360,14 +3375,21 @@
                         document.getElementById('error-message').textContent = msg;
                         showState('error');
                     }
+                    // Messages are set as text: server messages can quote file titles.
+                    function setMsg(id, msg, type) {
+                        var box = document.getElementById(id);
+                        while (box.firstChild) box.removeChild(box.firstChild);
+                        if (!msg) return;
+                        var div = document.createElement('div');
+                        div.className = 'msg msg-' + type;
+                        div.textContent = msg;
+                        box.appendChild(div);
+                    }
                     function showVerifyMsg(msg, type) {
-                        document.getElementById('verify-msg').innerHTML =
-                            '<div class="msg msg-' + type + '">' + msg + '</div>';
+                        setMsg('verify-msg', msg, type);
                     }
                     function showModalMsg(msg, type) {
-                        document.getElementById('modal-msg').innerHTML = msg
-                            ? '<div class="msg msg-' + type + '">' + msg + '</div>'
-                            : '';
+                        setMsg('modal-msg', msg, type);
                     }
 
                     // ===== TOKEN FROM URL =====
@@ -3847,9 +3869,23 @@
                         syncDocNav();
                     }
 
+                    var docNavKey = null;
+
                     function syncDocNav() {
                         var tabs = document.getElementById('doc-tabs');
                         var at = docOrder.indexOf(currentDoc);
+                        var key =
+                            at +
+                            '|' +
+                            docOrder
+                                .map(function (entry) {
+                                    return entry === 'form'
+                                        ? 'f'
+                                        : (entry.viewedAt ? 'o' : 'u') + (isMarkedUp(entry) ? 'm' : '');
+                                })
+                                .join(',');
+                        if (key === docNavKey && tabs.children.length === docOrder.length) return;
+                        docNavKey = key;
                         docOrder.forEach(function (entry, i) {
                             var tab = tabs.children[i];
                             if (!tab) return;
@@ -3860,6 +3896,7 @@
                                 (form ? ' form' : entry.viewedAt ? ' opened' : ' unopened') +
                                 (active ? ' active' : '');
                             tab.setAttribute('aria-selected', active ? 'true' : 'false');
+                            tab.setAttribute('aria-controls', form ? 'pdf-viewer-container' : 'attachment-pane');
                             tab.tabIndex = active ? 0 : -1;
                             tab.title = docLabel(entry);
                             tab.setAttribute('aria-label', docLabel(entry));
@@ -3962,7 +3999,7 @@
                     }
 
                     function showDocument(entry) {
-                        if (docOrder.indexOf(entry) < 0) return;
+                        if (docOrder.indexOf(entry) < 0 || entry === currentDoc) return;
                         captureMarks()
                             .catch(function (err) {
                                 console.error('Portwood: could not keep the markups on this document', err);
@@ -4068,11 +4105,14 @@
                         };
                         // #412 M2 — the signer's marked-up copy when there is one: in this session's
                         // memory, or saved earlier (e.g. before a reload), so new marks build on it.
+                        var saved = cachedAttachment(markedKey(a));
                         var source = markupBytes[a.index]
                             ? Promise.resolve(markupBytes[a.index])
-                            : a.markedUpAt && markupMode !== 'Off'
-                              ? fetchSavedMarkup(a, onProgress)
-                              : fetchAttachmentBytes(a, onProgress);
+                            : saved && a.markedUpAt
+                              ? Promise.resolve(saved)
+                              : a.markedUpAt && markupMode !== 'Off'
+                                ? fetchSavedMarkup(a, onProgress)
+                                : fetchAttachmentBytes(a, onProgress);
                         source
                             .then(function (bytes) {
                                 if (gen !== attachmentLoadGen) return null;
@@ -4122,7 +4162,19 @@
                         return null;
                     }
 
+                    // The cache key of a document's saved marked-up copy (originals use the index).
+                    function markedKey(a) {
+                        return 'm' + a.index;
+                    }
+
+                    function uncacheAttachment(key) {
+                        attachmentCache = attachmentCache.filter(function (entry) {
+                            return entry.index !== key;
+                        });
+                    }
+
                     function cacheAttachment(index, bytes) {
+                        uncacheAttachment(index);
                         attachmentCache.push({ index: index, bytes: bytes });
                         var total = 0;
                         for (var i = 0; i < attachmentCache.length; i++) total += attachmentCache[i].bytes.length;
@@ -4323,6 +4375,10 @@
                         ['keydown', 'copy', 'cut', 'paste'].forEach(function (type) {
                             document.body.addEventListener(type, keepFieldInputFromEditors);
                         });
+                        ['paste', 'dragover', 'drop'].forEach(function (type) {
+                            document.addEventListener(type, keepPicturesOut, true);
+                        });
+                        document.addEventListener('keydown', keepStampPickerShut, true);
                         syncStyleMenu();
                         window.addEventListener('beforeunload', function (e) {
                             if (hasUnsavedMarks()) {
@@ -4377,6 +4433,34 @@
                         if (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName || '')) {
                             e.stopPropagation();
                         }
+                    }
+
+                    // PDF.js turns a pasted or dropped picture into an image stamp on the drawing.
+                    // Pictures don't belong in a markup (and would take a save past its size limit),
+                    // so they are stopped before PDF.js's listeners see them. A file dropped anywhere
+                    // else would make the browser open it and leave the page, so that's stopped too.
+                    function keepPicturesOut(e) {
+                        var data = e.clipboardData || e.dataTransfer;
+                        var items = data && data.items ? data.items : [];
+                        var picture = Array.prototype.some.call(items, function (item) {
+                            return item.kind === 'file' || /^image\//.test(item.type || '');
+                        });
+                        if (!picture) return;
+                        e.preventDefault();
+                        e.stopImmediatePropagation();
+                        if (e.type === 'dragover' && e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+                    }
+
+                    // The Select tool is PDF.js's stamp mode, where Enter or Space on the drawing
+                    // opens a file picker to add a picture. Keep those keys from PDF.js there, unless
+                    // they're aimed at a mark (a text note, or resizing the selected mark).
+                    function keepStampPickerShut(e) {
+                        if (e.key !== 'Enter' && e.key !== ' ') return;
+                        if (DocGenAttachmentViewer.state().tool !== 'select') return;
+                        var t = e.target;
+                        if (!t || !t.closest || !t.closest('#attachment-viewer-container')) return;
+                        if (t.closest('.inkEditor, .freeTextEditor, .stampEditor, .highlightEditor')) return;
+                        e.stopPropagation();
                     }
 
                     function onToolKey(e) {
@@ -4477,7 +4561,7 @@
 
                     function hasUnsavedMarks() {
                         var a = shownDoc;
-                        if (a && DocGenAttachmentViewer.hasMarks() && !markupUploaded[a.index]) return true;
+                        if (a && DocGenAttachmentViewer.hasMarks() && DocGenAttachmentViewer.hasChanges()) return true;
                         return Object.keys(markupBytes).some(function (index) {
                             return !markupUploaded[index];
                         });
@@ -4501,15 +4585,24 @@
                     // saving that copy in the background.
                     function captureMarks(background) {
                         var a = shownDoc;
-                        if (!a || markupMode === 'Off' || !DocGenAttachmentViewer.hasMarks()) {
+                        if (
+                            !a ||
+                            markupMode === 'Off' ||
+                            !DocGenAttachmentViewer.hasMarks() ||
+                            !DocGenAttachmentViewer.hasChanges()
+                        ) {
                             return Promise.resolve();
                         }
                         return DocGenAttachmentViewer.markedBytes().then(function (bytes) {
-                            if (bytes) {
+                            if (!bytes) return null;
+                            return sha256Hex(bytes).then(function (hex) {
+                                // The same bytes as the copy on show: nothing new to save (PDF.js
+                                // re-registers a saved text note as an editor when a tool is picked).
+                                if (hex && hex === (markupBase[a.index] || a.sha256)) return;
                                 markupBytes[a.index] = bytes;
                                 delete markupUploaded[a.index];
                                 if (background !== false) saveInBackground(a);
-                            }
+                            });
                         });
                     }
 
@@ -4542,24 +4635,35 @@
                     }
 
                     var clearArmedUntil = 0;
+                    var clearArmedFor = null; // the document the armed Clear applies to
+
+                    function disarmClear() {
+                        clearArmedUntil = 0;
+                        clearArmedFor = null;
+                        document.getElementById('markup-clear-label').textContent = 'Clear all';
+                        document.getElementById('markup-clear').setAttribute('aria-label', 'Clear all marks');
+                    }
 
                     function clearMarks() {
                         var a = currentDoc !== 'form' ? currentDoc : null;
                         if (!a) return;
                         var label = document.getElementById('markup-clear-label');
-                        if (Date.now() > clearArmedUntil) {
+                        var button = document.getElementById('markup-clear');
+                        if (Date.now() > clearArmedUntil || clearArmedFor !== a) {
                             // First click arms the button; a second click within 4 s clears.
                             clearArmedUntil = Date.now() + 4000;
+                            clearArmedFor = a;
                             label.textContent = 'Click again to remove';
+                            button.setAttribute('aria-label', 'Click again to remove every mark on this document');
                             setTimeout(function () {
-                                if (Date.now() >= clearArmedUntil) label.textContent = 'Clear all';
+                                if (Date.now() >= clearArmedUntil) disarmClear();
                             }, 4100);
                             return;
                         }
-                        clearArmedUntil = 0;
-                        label.textContent = 'Clear all';
+                        disarmClear();
                         delete markupBytes[a.index];
                         delete markupUploaded[a.index];
+                        uncacheAttachment(markedKey(a));
                         var hadDraft = !!a.markedUpAt;
                         a.markedUpAt = null;
                         loadAttachment(a); // the original, without marks
@@ -4611,7 +4715,12 @@
                             // removes it again.
                             if (!markupBytes[a.index]) return;
                             // Only the copy actually sent counts as saved; newer marks go next time.
-                            if (markupBytes[a.index] === sending) markupUploaded[a.index] = true;
+                            // Saved, it moves to the bounded cache (re-fetched if it falls out).
+                            if (markupBytes[a.index] === sending) {
+                                markupUploaded[a.index] = true;
+                                delete markupBytes[a.index];
+                                cacheAttachment(markedKey(a), sending);
+                            }
                             a.markedUpAt = new Date().toISOString();
                             syncDocNav();
                         });
@@ -4677,8 +4786,7 @@
                                     if (serverSha && hex && serverSha !== hex) {
                                         throw userError('Your saved markup did not arrive intact. Please try again.');
                                     }
-                                    markupBytes[a.index] = bytes;
-                                    markupUploaded[a.index] = true;
+                                    cacheAttachment(markedKey(a), bytes);
                                     markupBase[a.index] = serverSha || hex;
                                     return bytes;
                                 });
@@ -5626,7 +5734,7 @@
                             }
                             showModalMsg(
                                 'Saving your markup on \u201C' +
-                                    escapeHtml(a.title || 'a document') +
+                                    (a.title || 'a document') +
                                     '\u201D (' +
                                     n +
                                     ' of ' +
@@ -6770,18 +6878,22 @@
                                 (entry.title || 'Document') + (entry.version ? ' (v' + entry.version + ')' : '');
                             var state = document.createElement('span');
                             state.className = 'dr-state' + (entry.viewedAt ? '' : ' unopened');
-                            state.textContent = !entry.viewedAt
-                                ? '○ Not opened'
-                                : isMarkedUp(entry)
-                                  ? '✎ Marked up'
-                                  : '✓ Opened';
+                            var glyph = document.createElement('span');
+                            glyph.setAttribute('aria-hidden', 'true');
+                            glyph.textContent = !entry.viewedAt ? '\u25CB ' : isMarkedUp(entry) ? '\u270E ' : '\u2713 ';
+                            state.appendChild(glyph);
+                            state.appendChild(
+                                document.createTextNode(
+                                    !entry.viewedAt ? 'Not opened' : isMarkedUp(entry) ? 'Marked up' : 'Opened'
+                                )
+                            );
                             li.appendChild(name);
                             li.appendChild(state);
                             list.appendChild(li);
                         });
                         warning.style.display = left ? '' : 'none';
                         warning.textContent = left ? declineWarning(left, attachments.length) : '';
-                        document.getElementById('btn-decline-cancel').style.display = left ? 'none' : '';
+
                         document.getElementById('btn-decline-review').style.display = left ? '' : 'none';
                         document.getElementById('btn-decline-confirm').textContent = declineConfirmLabel();
                     }
