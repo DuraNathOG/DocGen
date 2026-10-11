@@ -4316,6 +4316,9 @@
                         });
                         document.addEventListener('click', closeMenus);
                         document.addEventListener('keydown', onToolKey);
+                        ['keydown', 'copy', 'cut', 'paste'].forEach(function (type) {
+                            document.body.addEventListener(type, keepFieldInputFromEditors);
+                        });
                         syncStyleMenu();
                         window.addEventListener('beforeunload', function (e) {
                             if (hasUnsavedMarks()) {
@@ -4358,6 +4361,20 @@
 
                     // Single-letter tool keys, as in Figma and Bluebeam. PDF.js already handles
                     // Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y and Delete for the marks.
+                    // While a markup tool is on, PDF.js handles keys and the clipboard for the whole
+                    // page (Backspace and Delete remove the selected mark, Ctrl+Z undoes, copy and paste
+                    // are taken over), sparing only one-line text boxes. So a signer typing a decline
+                    // reason, or a field in the signing popup, couldn't delete, undo or paste. Stop
+                    // those events from reaching PDF.js (its listeners sit on document and window)
+                    // when they come from one of the page's own fields; its text notes are left alone.
+                    function keepFieldInputFromEditors(e) {
+                        var t = e.target;
+                        if (!t || !t.closest || t.closest('.annotationEditorLayer')) return;
+                        if (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName || '')) {
+                            e.stopPropagation();
+                        }
+                    }
+
                     function onToolKey(e) {
                         if (e.key === 'Escape') closeMenus();
                         if (e.ctrlKey || e.metaKey || e.altKey || !e.key || e.key.length !== 1) return;
