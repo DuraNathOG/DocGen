@@ -1827,6 +1827,13 @@
                                 I confirm I have reviewed the attached documents.
                             </label>
                         </div>
+                        <!-- #412 M2 — under Approve or decline: whether this approval goes with comments. -->
+                        <div
+                            id="approval-markup-note"
+                            class="msg msg-info"
+                            style="margin: 12px 0 0; display: none"
+                            role="note"
+                        ></div>
                     </div>
                     <div class="modal-footer">
                         <button id="modal-cancel" class="btn" type="button">Cancel</button>
@@ -4833,6 +4840,24 @@
                                     ? 'I confirm I have reviewed the attached document.'
                                     : 'I confirm I have reviewed the ' + attachments.length + ' attached documents.';
                         }
+                        showApprovalMarkupNote(show);
+                    }
+
+                    // #412 M2 — under "Approve or decline", say how this approval will go: with the
+                    // signer's markups (approved with comments) or without (approved as-is), so it's
+                    // their choice, not a side effect of a mark they forgot about.
+                    function showApprovalMarkupNote(show) {
+                        var note = document.getElementById('approval-markup-note');
+                        var on = !!show && markupMode === 'Approve or decline';
+                        note.style.display = on ? '' : 'none';
+                        if (!on) return;
+                        var n = markedUpCount();
+                        note.textContent = n
+                            ? 'You marked up ' +
+                              n +
+                              (n === 1 ? ' document' : ' documents') +
+                              ', so your approval will be sent as approved with comments, with your markups.'
+                            : "You haven't marked up any document, so your approval will be sent as approved as-is.";
                     }
 
                     function attachmentsReviewedOk() {

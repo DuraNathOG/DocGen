@@ -827,6 +827,7 @@ global with sharing class DocGenEmailTemplateService {
             d.subject = 'All Signatures Complete';
             d.bodyHtml =
                 '<p>All signers have completed their signatures. The signed PDF has been generated and attached to the record.</p>' +
+                '<p>{Message}</p>' +
                 '<p style="font-size:13px;color:#706e6b;margin-top:16px;">Request ID: {RequestId}</p>';
         } else if (type == TYPE_DECLINED) {
             d.subject = 'Signature Declined: {SignerName}';

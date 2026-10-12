@@ -1278,6 +1278,12 @@ private class DocGenSignatureAttachmentsTest {
         ]
         .ContentDocument.Title;
         Assert.isFalse(title.endsWith('(draft)'), 'A submitted markup is no longer titled a draft: ' + title);
+        Assert.areEqual(
+            1,
+            [SELECT Marked_Up_Documents__c FROM DocGen_Signature_Request__c WHERE Id = :s.Signature_Request__c]
+            .Marked_Up_Documents__c,
+            'A decline counts its marked-up documents too'
+        );
     }
 
     @IsTest
@@ -1295,7 +1301,7 @@ private class DocGenSignatureAttachmentsTest {
         DocGenSignatureController.SavePdfSignatureResult approved = composite(s.Secure_Token__c);
         Test.stopTest();
 
-        Assert.isTrue(approved.success, 'Approved as noted: ' + approved.message);
+        Assert.isTrue(approved.success, 'Approved with comments: ' + approved.message);
         Assert.isNotNull(
             [
                 SELECT Markup_Submitted_At__c
@@ -1304,6 +1310,58 @@ private class DocGenSignatureAttachmentsTest {
             ]
             .Markup_Submitted_At__c,
             'The approval submits the draft markup'
+        );
+        Assert.areEqual(
+            1,
+            [SELECT Marked_Up_Documents__c FROM DocGen_Signature_Request__c WHERE Id = :s.Signature_Request__c]
+            .Marked_Up_Documents__c,
+            'A Flow can tell this approval carried markups'
+        );
+        String summary = DocGenSignatureEmailService.completionMessage(s.Signature_Request__c);
+        Assert.isTrue(summary.startsWith('Approved with comments. Marked up: "GA-001 General Arrangement"'), summary);
+    }
+
+    @IsTest
+    static void completionSummary_saysApprovedAsIs_andOnlyWhereApprovalsCanCarryMarkups() {
+        Id withComments = markupTemplate('Approve or decline');
+        send(withComments, oneSigner(), drawingIds(), 'Before', false);
+        DocGen_Signer__c s = signer(withComments);
+        Id declineOnly = markupTemplate('Decline only');
+        send(declineOnly, oneSigner(), drawingIds(), 'Before', false);
+        DocGen_Signer__c other = signer(declineOnly);
+        User plain;
+        System.runAs(new User(Id = UserInfo.getUserId())) {
+            plain = new User(
+                Alias = 'dgplain2',
+                Email = 'dgplain2@example.com',
+                EmailEncodingKey = 'UTF-8',
+                LastName = 'NoPortwoodPermissions',
+                LanguageLocaleKey = 'en_US',
+                LocaleSidKey = 'en_US',
+                ProfileId = [SELECT Id FROM Profile WHERE Name = 'Standard User' LIMIT 1]
+                .Id,
+                TimeZoneSidKey = 'Europe/London',
+                UserName = 'dgplain2_' + System.currentTimeMillis() + '@example.com.docgen'
+            );
+            insert plain;
+        }
+
+        String asIs;
+        String notApplicable;
+        Test.startTest();
+        // The completion email is sent from a queueable, as the Automated Process user.
+        System.runAs(plain) {
+            asIs = DocGenSignatureEmailService.completionMessage(s.Signature_Request__c);
+            notApplicable = DocGenSignatureEmailService.completionMessage(other.Signature_Request__c);
+        }
+        Test.stopTest();
+
+        Assert.areEqual('Approved as-is: none of the 2 attached documents were marked up.', asIs);
+        Assert.areEqual('', notApplicable, 'Under Decline only an approval is always as-is: nothing to say');
+        Assert.isNull(
+            [SELECT Marked_Up_Documents__c FROM DocGen_Signature_Request__c WHERE Id = :s.Signature_Request__c]
+            .Marked_Up_Documents__c,
+            'No markups submitted, no count'
         );
     }
 

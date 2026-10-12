@@ -335,9 +335,24 @@ public without sharing class DocGenSignatureEmailService {
         sendSenderNotification(
             requestId,
             DocGenEmailTemplateService.TYPE_ALL_SIGNED,
-            new Map<String, String>{ 'RequestId' => String.valueOf(requestId) },
+            new Map<String, String>{
+                'RequestId' => String.valueOf(requestId),
+                'Message' => completionMessage(requestId)
+            },
             buildPdfAttachment(signedPdf, fileName)
         );
+    }
+
+    // #412 M2 — whether a request whose approvals may carry markups was approved with comments,
+    // and on which documents. Blank for everything else.
+    @TestVisible
+    private static String completionMessage(Id requestId) {
+        try {
+            return DocGenSignatureAttachments.approvalSummary(requestId);
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN, 'Portwood: completion approval summary failed: ' + e.getMessage());
+            return '';
+        }
     }
 
     /** Notifies the sender that a signer has declined. */

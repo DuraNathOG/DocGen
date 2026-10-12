@@ -4560,7 +4560,7 @@ export default class DocGenAdmin extends NavigationMixin(LightningElement) {
             { label: 'Off', value: 'Off' },
             { label: 'Decline only — an approval means approved as-is', value: 'Decline only' },
             {
-                label: 'Approve or decline — an approval with markup means approved as noted',
+                label: 'Approve (with or without comments) or decline — an approval with markups is approved with comments',
                 value: 'Approve or decline'
             }
         ];

@@ -656,6 +656,121 @@ public inherited sharing class DocGenSignatureAttachments {
     }
 
     /**
+     * Sets the request's Marked_Up_Documents__c: how many of its attached documents carry a markup
+     * some signer submitted. On a Signed request, more than 0 means approved with comments, so a
+     * Flow can route it differently from an approval as-is in one condition.
+     */
+    private static void countMarkedUpDocuments(Id requestId) {
+        DocGenFlsGuard.guestAssertAccessible(
+            DocGen_Signer_Attachment__c.sObjectType,
+            new Set<String>{ 'Attachment__c', 'Markup_Content_Version_Id__c', 'Markup_Submitted_At__c' }
+        );
+        /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
+        List<AggregateResult> agg = [
+            SELECT COUNT_DISTINCT(Attachment__c) n
+            FROM DocGen_Signer_Attachment__c
+            WHERE
+                Attachment__r.Signature_Request__c = :requestId
+                AND Markup_Submitted_At__c != NULL
+                AND Markup_Content_Version_Id__c != NULL
+            WITH SYSTEM_MODE
+        ];
+        Integer count = agg.isEmpty() || agg[0].get('n') == null ? 0 : (Integer) agg[0].get('n');
+        DocGen_Signature_Request__c req = new DocGen_Signature_Request__c(
+            Id = requestId,
+            Marked_Up_Documents__c = count
+        );
+        DocGenFlsGuard.guestAssertUpdateable(req, new Set<String>{ 'Marked_Up_Documents__c' });
+        /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
+        Database.update(req, AccessLevel.SYSTEM_MODE);
+    }
+
+    /**
+     * For the sender's completion email, when the request's template lets an approval carry
+     * markups ("Approve or decline"): "Approved with comments. Marked up: "A" (v1). ..." or "Approved
+     * as-is: ...". Blank otherwise, and for requests without attached documents. Runs where the
+     * email is sent (a queueable, as the Automated Process user), hence the advisory guards; see
+     * reviewSummary.
+     */
+    public static String approvalSummary(Id requestId) {
+        if (requestId == null) {
+            return '';
+        }
+        DocGenFlsGuard.advisoryAssertAccessible(
+            DocGen_Signature_Request__c.sObjectType,
+            new Set<String>{ 'Template__c' }
+        );
+        DocGenFlsGuard.advisoryAssertAccessible(
+            DocGen_Template__c.sObjectType,
+            new Set<String>{ 'Attached_Document_Markup__c' }
+        );
+        /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
+        List<DocGen_Signature_Request__c> reqs = [
+            SELECT Template__r.Attached_Document_Markup__c
+            FROM DocGen_Signature_Request__c
+            WHERE Id = :requestId
+            WITH SYSTEM_MODE
+            LIMIT 1
+        ];
+        if (reqs.isEmpty() || reqs[0].Template__r == null) {
+            return '';
+        }
+        if (reqs[0].Template__r.Attached_Document_Markup__c != MARKUP_APPROVE_OR_DECLINE) {
+            return '';
+        }
+        DocGenFlsGuard.advisoryAssertAccessible(
+            DocGen_Signature_Attachment__c.sObjectType,
+            new Set<String>{ 'Signature_Request__c', 'Title__c', 'Version_Number__c', 'Sort_Order__c' }
+        );
+        /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
+        List<DocGen_Signature_Attachment__c> rows = [
+            SELECT Id, Title__c, Version_Number__c
+            FROM DocGen_Signature_Attachment__c
+            WHERE Signature_Request__c = :requestId
+            WITH SYSTEM_MODE
+            ORDER BY Sort_Order__c ASC
+        ];
+        if (rows.isEmpty()) {
+            return '';
+        }
+        DocGenFlsGuard.advisoryAssertAccessible(
+            DocGen_Signer_Attachment__c.sObjectType,
+            new Set<String>{ 'Attachment__c', 'Markup_Content_Version_Id__c', 'Markup_Submitted_At__c' }
+        );
+        Set<Id> marked = new Set<Id>();
+        /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
+        for (DocGen_Signer_Attachment__c review : [
+            SELECT Attachment__c
+            FROM DocGen_Signer_Attachment__c
+            WHERE
+                Attachment__r.Signature_Request__c = :requestId
+                AND Markup_Submitted_At__c != NULL
+                AND Markup_Content_Version_Id__c != NULL
+            WITH SYSTEM_MODE
+        ]) {
+            marked.add(review.Attachment__c);
+        }
+        if (marked.isEmpty()) {
+            return 'Approved as-is: none of the ' +
+                (rows.size() == 1 ? 'attached document was' : rows.size() + ' attached documents were') +
+                ' marked up.';
+        }
+        List<String> names = new List<String>();
+        for (DocGen_Signature_Attachment__c row : rows) {
+            if (marked.contains(row.Id)) {
+                names.add(documentName(row));
+            }
+        }
+        return 'Approved with comments. Marked up: ' +
+            summaryList(names) +
+            '. The marked-up copies are saved to the record.';
+    }
+
+    private static String documentName(DocGen_Signature_Attachment__c row) {
+        return '"' + row.Title__c + '"' + (row.Version_Number__c != null ? ' (v' + row.Version_Number__c + ')' : '');
+    }
+
+    /**
      * What one signer's response covered, for the sender, e.g. on a decline: "Attached documents:
      * 1 of 3 opened. Not opened: "B" (v2), "C" (v1). Marked up: "A" (v1)." Blank when the request
      * has no attached documents. A document counts as opened once its first page was on screen,
@@ -707,11 +822,7 @@ public inherited sharing class DocGenSignatureAttachments {
         List<String> notOpened = new List<String>();
         List<String> markedUp = new List<String>();
         for (DocGen_Signature_Attachment__c row : rows) {
-            String name =
-                '"' +
-                row.Title__c +
-                '"' +
-                (row.Version_Number__c != null ? ' (v' + row.Version_Number__c + ')' : '');
+            String name = documentName(row);
             if (!opened.contains(row.Id)) {
                 notOpened.add(name);
             }
@@ -1290,6 +1401,7 @@ public inherited sharing class DocGenSignatureAttachments {
                 Attachment__c,
                 Attachment__r.Title__c,
                 Markup_Content_Version_Id__c,
+                Signer__r.Signature_Request__c,
                 Signer__r.Signature_Request__r.Related_Record_Id__c
             FROM DocGen_Signer_Attachment__c
             WHERE Signer__c = :signerId AND Markup_Content_Version_Id__c != NULL AND Markup_Submitted_At__c = NULL
@@ -1330,6 +1442,7 @@ public inherited sharing class DocGenSignatureAttachments {
         );
         /* code-analyzer-suppress ApexFlsViolation, DatabaseOperationsMustUseWithSharing */
         Database.update(drafts, AccessLevel.SYSTEM_MODE);
+        countMarkedUpDocuments(drafts[0].Signer__r.Signature_Request__c);
 
         DocGenFlsGuard.guestAssertAccessible(ContentDocument.sObjectType, new Set<String>{ 'Title' });
         List<ContentDocument> renamed = new List<ContentDocument>();
