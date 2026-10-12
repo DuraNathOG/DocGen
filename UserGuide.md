@@ -382,7 +382,15 @@ Choose **Start from a Blank Canvas** in the Create New wizard, or open any Canva
 
 **The properties panel** shows everything about the selected block: its name, content (a rich-text editor, or an HTML source view), fill, border, padding, a **Show only when** condition, layering, and position.
 
-**The toolbar** carries Template (settings), Preview (a real PDF from your sample record), Import HTML, Export HTML, the version picker, and Save.
+**The toolbar** carries Template (settings), Preview (a real PDF from your sample record), Import HTML, Export HTML, the version picker, Save, and a **Show sample data** checkbox.
+
+#### Show sample data
+
+Merge tags and the values they resolve to are rarely the same length — `{Schedule_Impact_Days__c}` is 25 characters standing in for `14`. Off, the artboard draws the tags themselves, so a box sized to fit a long tag can be the wrong size for the short real value, and vice versa. On, it substitutes the Test Record's real field values and — for a relationship-bound Table block — its real row count (up to 8 rows, with a "+N more rows" line beyond that), so what you're sizing on screen is much closer to what actually prints.
+
+It's off by default; turn it on from the toolbar checkbox once a Test Record is picked under **Data**. A field that's blank on the record shows its tag rather than going empty, so a box never collapses to nothing. `:currency` and `:date` tags get an approximate rendering sized for layout, not the exact formatting the real merge engine would apply. This never touches what gets saved — switching it on and off, or saving with it on, doesn't change the template body.
+
+A **Refresh** action and a status line live in the **Data** panel next to the record picker, for re-fetching after you change the bound record or add a field the artboard hasn't queried yet.
 
 #### What you place is what prints
 
@@ -419,6 +427,19 @@ Select a block and set its **Position**:
 Links chain. A summary can follow the table, a note follow the summary, and a signature panel follow the note; the whole set moves as one. **Keep on the same page as what it follows** stops a block being split across a page break (it maps to `page-break-inside: avoid`, which the engine honours as long as the block actually fits on a page).
 
 A block can only follow something on the same page, and the picker will not offer a target that would create a loop — if A already follows B, B cannot be set to follow A. When the selection is part of a chain, a dashed tether is drawn on the artboard from each anchor to the block that follows it, so you can see the group at a glance. If the block a link points at is deleted, the panel says so rather than leaving it silently stationary.
+
+#### Variant groups — conditional alternatives in one flow slot
+
+The problem: two flowing blocks with mutually exclusive **Show only when** conditions — say, one for `Customer_Type__c = 'Business'` and one for `'Individual'` — each still reserve their own space in the flow. Only one of them is ever true at merge time, but the other's block disappears and leaves an empty gap where it was, and anything below both of them stacks down as if both had printed.
+
+Give them the same **Variant group** name and they share one flow slot instead. Whichever block's condition is true at merge time fills the slot; the others contribute nothing, not even blank space. The Designer still shows every alternative at its own authored position so each one can be selected and edited independently — only the generated output collapses them.
+
+```
+Box A — Show only when: Customer_Type__c = 'Business'   — Variant group: CustType
+Box B — Show only when: Customer_Type__c = 'Individual'  — Variant group: CustType
+```
+
+A block set to **Flows down the page** or **Follows another element** below the group follows the single active alternative, not a stack sized for all of them. The group name is free-form — any boxes sharing it are treated as one set of alternatives, and a block with no Variant group is unaffected.
 
 #### Import and export
 
@@ -1728,6 +1749,20 @@ Empty loops (null or empty child list) render nothing — no error.
 - `<Field>` may be a **dot-path** on the child (e.g. `Product2.Family`, `Owner.Name`).
 - Inside the block: **`{GroupName}`** is the group's value (use it as the header); the inner **`{#<Relationship>}…{/<Relationship>}`** loops only that group's members; and **`{SUM|COUNT|AVG|MIN|MAX:<Relationship>.Field}`** aggregate just that group.
 - Works identically in Word and HTML templates. An empty/absent relationship renders nothing.
+
+**Reaching parent-level data from inside a loop — `{~Label}`.** A tag inside a loop normally only sees the current row's own data — a merge tag or `{#ChartBucket}` that depends on a **different**, sibling relationship on the parent record resolves to nothing. Wrap that content in `{~Label}…{/Label}` to resolve it against the top-level record instead, no matter how deeply nested the tag itself is:
+
+```
+{#Contacts}
+  {LastName}:
+  {~Pipeline}{#ChartBucket:Opportunities:StageName}{key_label} {percent}%{/ChartBucket}{/Pipeline}
+{/Contacts}
+```
+
+- `Label` is a free-form match key, not a relationship name — it only pairs the tag with its closing `{/Label}`. Pick one that's unique across the whole template; a `{~Offices}` and an unrelated `{#Offices}` sharing the same label text can miscount each other's nesting depth.
+- Works at any nesting depth, including inside another `{~Label}` block.
+- Composes with `{#ChartBucket}` — a chart wrapped in `{~Label}` resolves against the parent record even when the whole block sits inside an unrelated loop.
+- **Not supported inside a giant-query loop** (a relationship over the 2,000-row threshold) — using it there fails generation immediately with a clear error instead of silently rendering blank.
 
 ### 7.4 Conditionals
 
