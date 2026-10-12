@@ -3069,22 +3069,27 @@
                         function replay(type, p, target) {
                             replaying = true;
                             try {
-                                target.dispatchEvent(
-                                    new PointerEvent(type, {
-                                        bubbles: true,
-                                        cancelable: true,
-                                        composed: true,
-                                        pointerId: p.pointerId,
-                                        pointerType: 'touch',
-                                        isPrimary: true,
-                                        clientX: p.clientX,
-                                        clientY: p.clientY,
-                                        screenX: p.screenX,
-                                        screenY: p.screenY,
-                                        button: type === 'pointermove' ? -1 : 0,
-                                        buttons: type === 'pointerup' ? 0 : 1
-                                    })
-                                );
+                                var ev = new PointerEvent(type, {
+                                    bubbles: true,
+                                    cancelable: true,
+                                    composed: true,
+                                    pointerId: p.pointerId,
+                                    pointerType: 'touch',
+                                    isPrimary: true,
+                                    clientX: p.clientX,
+                                    clientY: p.clientY,
+                                    screenX: p.screenX,
+                                    screenY: p.screenY,
+                                    button: type === 'pointermove' ? -1 : 0,
+                                    buttons: type === 'pointerup' ? 0 : 1
+                                });
+                                // PDF.js draws at offsetX/offsetY, and a phone's browser works those out
+                                // wrongly for an event the page made (measured: 60 px into a box read as
+                                // -460), so a held stroke started at the top of the drawing. Set them.
+                                var box = target.getBoundingClientRect();
+                                Object.defineProperty(ev, 'offsetX', { value: p.clientX - box.left });
+                                Object.defineProperty(ev, 'offsetY', { value: p.clientY - box.top });
+                                target.dispatchEvent(ev);
                             } finally {
                                 replaying = false;
                             }
