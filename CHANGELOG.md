@@ -69,7 +69,7 @@
     - **Tools.** A toolbar above the drawing, with keyboard shortcuts: Select (V), Pan (H),
       Pen (P), Highlighter (U), Rectangle (R), Ellipse (O), Line (L), Arrow (A), Revision
       cloud (C) and Text (T); line width and text size; six colours; Undo, Redo, Delete and
-      Clear all. Built on PDF.js 4.7.76's own annotation editors; the shapes are built by the
+      Clear all. Each stroke is its own mark with its own style; the colour and width menus restyle the mark picked with Select. On touch screens one finger draws and two fingers pan and zoom. Built on PDF.js 4.7.76's own annotation editors; the shapes are built by the
       page and handed to PDF.js as ink marks, through an editor-layer method that isn't PDF.js
       public API, so a PDF.js upgrade needs them re-tested. Icons: Tabler Icons 3.49.0 (MIT,
       inlined; see THIRD-PARTY-NOTICES.md).

@@ -841,6 +841,11 @@
                 .dg-att-scroller.dg-pen {
                     touch-action: none;
                 }
+                /* While drawing, finished marks let the pointer through, so a stroke can start on top
+                   of one; the Select tool picks them. */
+                .dg-att-scroller.dg-pen .annotationEditorLayer .inkEditor.disabled {
+                    pointer-events: none;
+                }
                 .dg-shape-preview {
                     position: absolute;
                     pointer-events: none;
@@ -2615,7 +2620,49 @@
                             set(params.INK_COLOR, toolStyle.color);
                             set(params.INK_THICKNESS, toolStyle.thickness);
                             set(params.INK_OPACITY, 100);
+                        } else if (st.tool === 'select') {
+                            // The colour and width menus restyle the selected mark, whichever kind.
+                            set(params.INK_COLOR, toolStyle.color);
+                            set(params.INK_THICKNESS, toolStyle.thickness);
+                            set(params.FREETEXT_COLOR, toolStyle.color);
+                            set(params.FREETEXT_SIZE, toolStyle.fontSize);
                         }
+                        renewEmptyDrawings(st);
+                    }
+
+                    // The empty drawing PDF.js lays ready for the next stroke takes its colour and
+                    // width when it's laid. After a change of tool or style it's replaced (PDF.js
+                    // lays another as soon as one goes), so the next stroke uses the new ones.
+                    function renewEmptyDrawings(st) {
+                        if (!st.uiManager || !(st.tool === 'pen' || st.tool === 'highlight' || SHAPE_TOOLS[st.tool])) {
+                            return;
+                        }
+                        Array.prototype.forEach.call(st.scroller.querySelectorAll('.inkEditor'), function (div) {
+                            var editor = st.uiManager.getEditor(div.id);
+                            if (editor && editor.isEmpty()) editor.remove();
+                        });
+                    }
+
+                    // One stroke, one mark. PDF.js gathers pen strokes into one drawing with one
+                    // colour and width until the drawing is finished, so a later change of tool,
+                    // colour or width restyled every stroke before it (highlighter strokes saved as
+                    // red pen lines). Each stroke is finished as it ends, and let go of: it keeps the
+                    // style it was drawn with, and PDF.js lays a fresh drawing for the next stroke.
+                    function wireStrokeCommit(st) {
+                        function finish(e) {
+                            if (!st.markup || (st.tool !== 'pen' && st.tool !== 'highlight') || !st.uiManager) return;
+                            var div = e.target && e.target.closest ? e.target.closest('.inkEditor') : null;
+                            var editor = div ? st.uiManager.getEditor(div.id) : null;
+                            if (!editor) return;
+                            // After PDF.js has handled the event and ended the stroke.
+                            Promise.resolve().then(function () {
+                                if (editor.isEmpty() || !editor.isInEditMode()) return;
+                                editor.commit();
+                                st.uiManager.unselect(editor);
+                            });
+                        }
+                        st.scroller.addEventListener('pointerup', finish, true);
+                        st.scroller.addEventListener('pointerleave', finish, true);
                     }
 
                     // ---- shapes ----
@@ -2980,6 +3027,174 @@
                         );
                     }
 
+                    // Touch with a drawing tool (the pen, the highlighter, a shape). PDF.js's pen
+                    // starts a stroke on the first finger and adds every finger's movement to it, so a
+                    // pinch or a two-finger drag drew zig-zags while the page zoomed underneath; with a
+                    // shape, the second finger went on into PDF.js and started a pen stroke. Now a
+                    // pen touch is held back until it's clearly drawing (it moves a few pixels, or
+                    // stays down a moment) and then replayed to PDF.js; a second finger before that
+                    // makes it a pan or zoom with nothing drawn, and a second finger after a stroke
+                    // has started takes that stroke back. Either way the fingers then belong to the
+                    // pan and zoom (wireInput's touch handlers) until they all lift. The mouse and a
+                    // stylus draw at once, as before.
+                    var TOUCH_DRAW_DELAY_MS = 120;
+                    var TOUCH_DRAW_MOVE_PX = 6;
+                    var PINCH_DEADBAND = 0.02; // a 2% change in finger spread before a pinch zooms
+
+                    function wireTouchDrawing(st) {
+                        var scroller = st.scroller;
+                        var down = {}; // pointerId → true while that finger is on the screen
+                        var g = { mode: null }; // null | 'pending' | 'draw' | 'shape' | 'gesture'
+                        var replaying = false;
+
+                        function inkTool() {
+                            return st.markup && (st.tool === 'pen' || st.tool === 'highlight' || SHAPE_TOOLS[st.tool]);
+                        }
+                        function fingers() {
+                            return Object.keys(down).length;
+                        }
+                        function point(e) {
+                            return {
+                                pointerId: e.pointerId,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                                screenX: e.screenX,
+                                screenY: e.screenY
+                            };
+                        }
+                        function hold(e) {
+                            e.stopPropagation();
+                            if (e.cancelable) e.preventDefault();
+                        }
+                        function replay(type, p, target) {
+                            replaying = true;
+                            try {
+                                target.dispatchEvent(
+                                    new PointerEvent(type, {
+                                        bubbles: true,
+                                        cancelable: true,
+                                        composed: true,
+                                        pointerId: p.pointerId,
+                                        pointerType: 'touch',
+                                        isPrimary: true,
+                                        clientX: p.clientX,
+                                        clientY: p.clientY,
+                                        screenX: p.screenX,
+                                        screenY: p.screenY,
+                                        button: type === 'pointermove' ? -1 : 0,
+                                        buttons: type === 'pointerup' ? 0 : 1
+                                    })
+                                );
+                            } finally {
+                                replaying = false;
+                            }
+                        }
+                        // The held touch is drawing after all: hand it to PDF.js from where it started.
+                        function startDrawing() {
+                            var p = g.pending;
+                            clearTimeout(g.timer);
+                            g.pending = null;
+                            g.mode = 'draw';
+                            g.id = p.down.pointerId;
+                            g.target = p.target;
+                            g.last = p.down;
+                            replay('pointerdown', p.down, p.target);
+                            p.moves.forEach(function (m) {
+                                replay('pointermove', m, p.target);
+                                g.last = m;
+                            });
+                        }
+                        // A second finger after the stroke began: end it where it is and take it back.
+                        function cancelStroke() {
+                            replay('pointerup', g.last, g.target);
+                            st.eventBus.dispatch('editingaction', { source: null, name: 'undo' });
+                        }
+                        function reset() {
+                            clearTimeout(g.timer);
+                            down = {};
+                            g = { mode: null };
+                        }
+                        st.touchReset = reset;
+
+                        scroller.addEventListener(
+                            'pointerdown',
+                            function (e) {
+                                if (replaying || e.pointerType !== 'touch' || !inkTool()) return;
+                                down[e.pointerId] = true;
+                                if (fingers() === 1 && !g.mode) {
+                                    if (SHAPE_TOOLS[st.tool]) {
+                                        g.mode = 'shape'; // wireShapeInput draws it
+                                        return;
+                                    }
+                                    g.mode = 'pending';
+                                    g.pending = { down: point(e), target: e.target, moves: [] };
+                                    g.timer = setTimeout(function () {
+                                        if (g.mode === 'pending') startDrawing();
+                                    }, TOUCH_DRAW_DELAY_MS);
+                                    hold(e);
+                                    return;
+                                }
+                                // Another finger: a pan or zoom. (wireShapeInput has already let go
+                                // of a shape in progress.)
+                                if (g.mode === 'pending') {
+                                    clearTimeout(g.timer);
+                                    g.pending = null;
+                                } else if (g.mode === 'draw') {
+                                    cancelStroke();
+                                }
+                                g.mode = 'gesture';
+                                hold(e);
+                            },
+                            true
+                        );
+                        scroller.addEventListener(
+                            'pointermove',
+                            function (e) {
+                                if (replaying || e.pointerType !== 'touch' || !down[e.pointerId]) return;
+                                if (g.mode === 'shape') return;
+                                if (g.mode === 'draw' && e.pointerId === g.id) {
+                                    g.last = point(e); // PDF.js draws it
+                                    return;
+                                }
+                                if (g.mode === 'pending' && e.pointerId === g.pending.down.pointerId) {
+                                    g.pending.moves.push(point(e));
+                                    var moved = Math.hypot(
+                                        e.clientX - g.pending.down.clientX,
+                                        e.clientY - g.pending.down.clientY
+                                    );
+                                    if (moved >= TOUCH_DRAW_MOVE_PX) startDrawing(); // replays this move too
+                                }
+                                hold(e);
+                            },
+                            true
+                        );
+                        function lift(e) {
+                            if (replaying || e.pointerType !== 'touch' || !down[e.pointerId]) return;
+                            delete down[e.pointerId];
+                            var last = !fingers();
+                            if (g.mode === 'shape') {
+                                if (last) g.mode = null;
+                                return;
+                            }
+                            if (g.mode === 'pending' && e.pointerId === g.pending.down.pointerId) {
+                                if (e.type === 'pointerup') {
+                                    startDrawing(); // a tap: a dot, as a click makes
+                                    if (last) g.mode = null;
+                                    return; // this pointerup ends it in PDF.js
+                                }
+                                clearTimeout(g.timer);
+                                g.pending = null;
+                            } else if (g.mode === 'draw' && e.pointerId === g.id) {
+                                if (last) g.mode = null;
+                                return; // PDF.js ends the stroke
+                            }
+                            hold(e);
+                            if (last) g.mode = null;
+                        }
+                        scroller.addEventListener('pointerup', lift, true);
+                        scroller.addEventListener('pointercancel', lift, true);
+                    }
+
                     function boxCentre(st) {
                         var r = st.scroller.getBoundingClientRect();
                         return [r.left + r.width / 2, r.top + r.height / 2];
@@ -2988,6 +3203,8 @@
                     function wireInput(st) {
                         var scroller = st.scroller;
                         wireShapeInput(st);
+                        wireTouchDrawing(st);
+                        wireStrokeCommit(st);
                         scroller.addEventListener(
                             'input',
                             function (e) {
@@ -3021,18 +3238,20 @@
                             { passive: false }
                         );
 
-                        // Two-finger pinch on a touch screen zooms the drawing, not the page
-                        // (touch-action on the box keeps one-finger panning native).
+                        // Two fingers on a touch screen zoom the drawing (not the page) and move it.
+                        // One-finger panning is native with the hand tool (touch-action on the box);
+                        // with a drawing tool one finger draws, so two fingers are the only way to
+                        // move around, and this does both at once, like any drawing app.
                         function spread(t) {
                             return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
                         }
-                        scroller.addEventListener(
-                            'touchstart',
-                            function (e) {
-                                st.pinch = e.touches.length === 2 ? spread(e.touches) : null;
-                            },
-                            { passive: true }
-                        );
+                        function middle(t) {
+                            return [(t[0].clientX + t[1].clientX) / 2, (t[0].clientY + t[1].clientY) / 2];
+                        }
+                        function startPinch(e) {
+                            st.pinch = e.touches.length === 2 ? { d: spread(e.touches), m: middle(e.touches) } : null;
+                        }
+                        scroller.addEventListener('touchstart', startPinch, { passive: true });
                         scroller.addEventListener(
                             'touchmove',
                             function (e) {
@@ -3041,22 +3260,26 @@
                                 }
                                 e.preventDefault();
                                 var d = spread(e.touches);
-                                if (d > 0) {
-                                    zoomBy(
-                                        st,
-                                        d / st.pinch,
-                                        (e.touches[0].clientX + e.touches[1].clientX) / 2,
-                                        (e.touches[0].clientY + e.touches[1].clientY) / 2
-                                    );
-                                    st.pinch = d;
+                                var m = middle(e.touches);
+                                // Fingers dragging together wobble apart a little; only a real
+                                // change in their spread zooms, so a two-finger drag just moves.
+                                if (d > 0 && Math.abs(d / st.pinch.d - 1) >= PINCH_DEADBAND) {
+                                    zoomBy(st, d / st.pinch.d, m[0], m[1]);
+                                    st.pinch.d = d;
                                 }
+                                scroller.scrollLeft -= m[0] - st.pinch.m[0];
+                                scroller.scrollTop -= m[1] - st.pinch.m[1];
+                                st.pinch.m = m;
                             },
                             { passive: false }
                         );
                         scroller.addEventListener('touchend', function (e) {
-                            if (e.touches.length < 2) {
-                                st.pinch = null;
-                            }
+                            startPinch(e); // two left: carry on; fewer: done
+                            if (!e.touches.length && st.touchReset) st.touchReset();
+                        });
+                        scroller.addEventListener('touchcancel', function () {
+                            st.pinch = null;
+                            if (st.touchReset) st.touchReset();
                         });
 
                         // Mouse drag-to-pan (the hand tool). Touch already pans natively.
@@ -3288,9 +3511,11 @@
                             }
                             cancelShape(st);
                             // A tool's settings go to the selected marks too (that's how the colour
-                            // and width menus restyle one), so let go of the selection first, or
-                            // picking the highlighter would turn a selected pen line yellow.
-                            if (st.uiManager) st.uiManager.unselectAll();
+                            // and width menus restyle one), so leaving Select lets go of the
+                            // selection first, or picking the highlighter would turn a selected pen
+                            // line yellow. Only from Select: elsewhere it would also finish the pen's
+                            // current drawing session, and the next stroke would only start a new one.
+                            if (st.uiManager && st.tool === 'select') st.uiManager.unselectAll();
                             st.tool = tool; // before the switch: its event reads it
                             st.viewer.annotationEditorMode = { mode: editorMode(st, tool) };
                             var drawing = tool !== 'pan' && tool !== 'select';

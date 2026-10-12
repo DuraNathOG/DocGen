@@ -3028,7 +3028,7 @@ Signers can mark up the attached documents on the signing page: draw on a drawin
 | Undo, Redo, Delete | Ctrl+Z, Ctrl+Shift+Z, Delete | Undo or redo the last change; remove the selected mark                                          |
 | Clear all          |                              | Removes every mark on the document; click twice to confirm                                      |
 
-On a touch screen, use Pan to move around and pinch to zoom.
+On a touch screen, one finger draws and two fingers move and zoom the drawing, whichever tool is on; with Pan, one finger moves it too. Each stroke is its own mark and keeps the colour and width it was drawn with, and a new stroke can start on top of an earlier one.
 
 **Saving.** The signer doesn't need to save. When they move to another document, its marks are saved in the background as a draft file on the related record, titled `<document> - markup - <signer> <date> (draft)`. Approving or declining submits the drafts, and "(draft)" drops from the titles. If the signer reloads the page or comes back later, they see their saved draft, and new marks add to it. **Clear all** removes the draft. If the signer tries to leave with marks that aren't saved yet, the browser asks them to confirm.
 
