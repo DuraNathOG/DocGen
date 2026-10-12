@@ -55,7 +55,71 @@
       until they use the feature: the Sender reads the new template field through the
       advisory FLS guard (like `Brand__c`), so its template list never fails on upgrade.
 
+- **Signers can mark up attached documents on the signing page (#412, part 2).** A signer
+  reviewing attached drawings can draw on them, highlight, box an area, add a revision cloud or
+  an arrow, and type notes. Each marked-up copy is saved to the related record as a new file;
+  the attached originals are never changed.
+    - **Opt-in per template.** A new **Attached Document Markup** setting next to Attached
+      Documents: _Off_ (default), _Decline only (approvals are as-is)_, or _Approve (with or
+      without comments) or decline_. Under Decline only, a signer with marks can't approve
+      until they clear them ("Clear your marks to approve"), and Decline becomes the main
+      button ("Decline with markups"). Under Approve or decline, an approval with markups is
+      **approved with comments** (construction's "approved as noted", Status B). There is no
+      new status: the outcome is still approved or declined.
+    - **Tools.** A toolbar above the drawing, with keyboard shortcuts: Select (V), Pan (H),
+      Pen (P), Highlighter (U), Rectangle (R), Ellipse (O), Line (L), Arrow (A), Revision
+      cloud (C) and Text (T); line width and text size; six colours; Undo, Redo, Delete and
+      Clear all. Built on PDF.js 4.7.76's own annotation editors; the shapes are built by the
+      page and handed to PDF.js as ink marks, through an editor-layer method that isn't PDF.js
+      public API, so a PDF.js upgrade needs them re-tested. Icons: Tabler Icons 3.49.0 (MIT,
+      inlined; see THIRD-PARTY-NOTICES.md).
+    - **Saving.** Marks are saved in the background when the signer moves to another document,
+      as a draft file titled `<document> - markup - <signer> <date> (draft)`; approving or
+      declining submits the drafts and drops "(draft)". Marks are standard PDF annotations
+      (ink and free text) appended to the original, so they open in any PDF reader. A reload
+      shows the saved draft, and new marks add to it. Clear all withdraws the draft. One copy is
+      kept per signer and document (each save replaces the last, and the old file is deleted),
+      saves are capped at 20 per document, and a markup can be at most 2 MB or 10% larger than
+      the original, whichever is more.
+    - **Approved with comments, for Flow.** A new **Marked-Up Documents** field on the
+      signature request counts the documents with a submitted markup, so a record-triggered
+      Flow can tell an approval with comments from one as-is in one condition
+      (`Status__c = 'Signed' AND Marked_Up_Documents__c > 0`). The final signing step tells the
+      signer which it will be, and the sender's completion email says "Approved with comments.
+      Marked up: ..." or "Approved as-is".
+    - **Reviewing several documents.** The document list becomes a row of tabs, each showing
+      whether that document was opened or marked up, under a banner saying how many are left
+      to review. While any are unopened, the main button stays "Review attached documents
+      (N left)". Declining is never blocked, but the decline screen lists each document as
+      opened, marked up or not opened, and offers "Review the rest first" before "Decline
+      anyway". The sender's decline email adds a line: "Attached documents: 1 of 3 opened. Not
+      opened: ... Marked up: ...".
+    - **Approval register.** The signed PDF's Attached Documents page lists each submitted
+      markup under its document: who marked it up, when, and the markup's SHA-256.
+    - **Guest endpoint.** The `signature-attachment` REST resource gains POST (save a draft),
+      DELETE (withdraw it) and GET `?markup=1` (reload it), behind the same token, PIN, expiry
+      and status gates. Each save says which copy it was built on (`X-Portwood-Markup-Base`),
+      so a second window on the same link can't silently overwrite the first; saves, approval
+      and decline lock the signer's row so they can't interleave; and a draft is served,
+      replaced, renamed or deleted only after checking it really is the signer's own. A markup
+      file is the signer's own content: the server checks its size and where it came from, not
+      what the marks draw.
+    - New fields: `DocGen_Template__c.Attached_Document_Markup__c`;
+      `DocGen_Signer_Attachment__c.Markup_Content_Version_Id__c`, `Markup_Sha256__c`,
+      `Markup_Saved_At__c`, `Markup_Submitted_At__c` and `Markup_Saves__c`; and
+      `DocGen_Signature_Request__c.Marked_Up_Documents__c`. Permission sets and layouts are
+      updated; the guest permission set is unchanged.
+    - Known limits: after a reload, earlier pen and shape marks can't be selected or moved
+      (PDF.js 4.7 doesn't make saved ink editable; text notes stay editable, and Clear all
+      removes everything). Shapes and clouds open in other readers as freehand ink, not as
+      editable shape objects. Pictures can't be added to a markup.
+
 ### Fixed
+
+- **A signer can no longer decline a request that's already finished.** Declining checked
+  the signer's own status but not the request's, so a signer could decline a request the
+  sender had cancelled, or one another signer had already declined or completed, and reopen it
+  as Declined. It is now refused with "This signature request is no longer active."
 
 - **The signing page is sharp on phones and HiDPI screens, and stays sharp when you
   zoom (#413).** The guided signing viewer drew each PDF page onto a canvas sized in CSS

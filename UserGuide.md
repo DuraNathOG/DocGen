@@ -2948,7 +2948,7 @@ Attached documents need **Decline** available, because the signer approves or de
 
 **Pinning.** Each file is pinned to the exact version it had at send time. Uploading a new version later doesn't change what the signer sees; to send the new revision, send a new request. If a pinned file is deleted, or its content no longer matches, the signer is told to contact the sender instead of being shown something else.
 
-**Signing.** The signing page adds a document switcher (previous/next arrows plus a list) above the viewer, ticking each attached document as the signer opens it. Attached documents load one at a time, straight from the record. Signers drag to move around a drawing and zoom with Ctrl + scroll, a trackpad or touch-screen pinch, or the + / − / Fit buttons; only the drawing zooms, not the page around it. **The signer must open every attached document, then confirm they reviewed them, before they can finish signing.** The confirmation is a tick box at the final step ("I confirm I have reviewed the N attached documents"), and it can only be recorded once every document has been opened. The page enforces both, and so does the server: a signature submitted with an unopened attachment, or without the confirmation, is refused. Decline is always available on these requests, even if Decline is hidden after the request was sent, so a signer who finds a problem with a drawing can decline with a reason without opening the rest.
+**Signing.** The signing page adds a banner saying how many attached documents there are to review, with an **Open the next one** button, and a row of tabs: one per attached document, plus one for the template marked **Sign here**. Each tab shows whether its document has been opened (and a pen mark once the signer has marked it up, §10.3.2). With many documents the tabs scroll sideways, and the arrow keys move between them. Once every document is open, the banner shrinks to a single line. Attached documents load one at a time, straight from the record. Signers drag to move around a drawing and zoom with Ctrl + scroll, a trackpad or touch-screen pinch, or the + / − / Fit buttons; only the drawing zooms, not the page around it. **The signer must open every attached document, then confirm they reviewed them, before they can finish signing.** The confirmation is a tick box at the final step ("I confirm I have reviewed the N attached documents"), and it can only be recorded once every document has been opened. The page enforces both, and so does the server: a signature submitted with an unopened attachment, or without the confirmation, is refused. Decline is always available on these requests, even if Decline is hidden after the request was sent, so a signer who finds a problem with a drawing can decline with a reason without opening the rest. If they decline before opening every document, the decline screen lists each document as opened, marked up or not opened, and offers **Review the rest first** before **Decline anyway**. The sender's decline email then says which documents the signer opened.
 
 **The signed PDF** is the approval record: the template pages with the signatures, then an **Attached Documents** register, then the Certificate of Completion. The register lists every attached document with its version, size, SHA-256 fingerprint and who opened it when, followed by each signer's review confirmation and its time. The confirmation records what the signer confirmed; it does not show that every page was read. The attached PDFs themselves are not merged into the signed copy. They stay unchanged on the record, and the fingerprint ties the approval to their exact bytes: anyone can hash a file and compare.
 
@@ -2966,6 +2966,56 @@ Attached documents need **Decline** available, because the signer approves or de
     - give the Site guest user access to the `DocGenSignatureAttachmentRest` Apex class.
 
     Sends without attached documents need none of these.
+
+### 10.3.2 Marking up attached documents
+
+Signers can mark up the attached documents on the signing page: draw on a drawing, highlight, box an area, add an arrow or a revision cloud, and type notes. Each signer's marked-up copy of a document is saved to the related record as a new file. The attached originals are never changed.
+
+**Turning it on.** In Command Hub → My Templates, edit a template that takes attached documents and set **Attached Document Markup (e-sign)**:
+
+- **Off** (the default): no markup. The signing page shows the documents only.
+- **Decline only (approvals are as-is)**: markups go with a decline. Once a signer has marked anything up, they can't approve until they clear their marks ("Clear your marks to approve"), and Decline becomes the main button ("Decline with markups"). Use this when an approval must mean "approved exactly as drawn".
+- **Approve (with or without comments) or decline**: markups can go with either outcome. An approval that carries markups is **approved with comments**: in construction, "approved as noted" or Status B, meaning go ahead but incorporate the comments. There is no extra status; the request is still approved or declined, and you can tell the two kinds of approval apart (see below).
+
+**The tools.** A toolbar sits above the drawing. Hover over a button for its name and shortcut key.
+
+| Tool               | Key                          | What it does                                                                                    |
+| ------------------ | ---------------------------- | ----------------------------------------------------------------------------------------------- |
+| Select             | V                            | Click a mark to select it, then move it, delete it or change its colour or width                |
+| Pan                | H                            | Drag to move around the drawing (the default)                                                   |
+| Pen                | P                            | Freehand drawing                                                                                |
+| Highlighter        | U                            | A wide, see-through stroke, yellow unless you pick another colour                               |
+| Shapes             | R, O, L                      | Rectangle, ellipse or straight line: drag from corner to corner, or from end to end             |
+| Arrow              | A                            | Drag from the tail to the point                                                                 |
+| Revision cloud     | C                            | Drag to draw a cloud around an area                                                             |
+| Text               | T                            | Click to place a note and type; Enter starts a new line                                         |
+| Width, Colour      |                              | Line width and text size, and six colours. They apply to the next mark, and to the selected one |
+| Undo, Redo, Delete | Ctrl+Z, Ctrl+Shift+Z, Delete | Undo or redo the last change; remove the selected mark                                          |
+| Clear all          |                              | Removes every mark on the document; click twice to confirm                                      |
+
+On a touch screen, use Pan to move around and pinch to zoom.
+
+**Saving.** The signer doesn't need to save. When they move to another document, its marks are saved in the background as a draft file on the related record, titled `<document> - markup - <signer> <date> (draft)`. Approving or declining submits the drafts, and "(draft)" drops from the titles. If the signer reloads the page or comes back later, they see their saved draft, and new marks add to it. **Clear all** removes the draft. If the signer tries to leave with marks that aren't saved yet, the browser asks them to confirm.
+
+**Approving with comments.** Under _Approve (with or without comments) or decline_, the final signing step tells the signer how their approval will go: "You marked up 2 documents, so your approval will be sent as approved with comments, with your markups", or "You haven't marked up any document, so your approval will be sent as approved as-is." So a stray mark is their choice, not an accident.
+
+**What you get:**
+
+- **The marked-up files** on the related record, one per signer per document.
+- **The signed PDF's register** (§10.3.1) lists each submitted markup under its document: who marked it up, when, and the markup's SHA-256.
+- **Marked-Up Documents** on the signature request: how many attached documents carry a submitted markup. On a signed request, more than 0 means it was approved with comments.
+- **The sender's emails.** The decline email adds which documents the signer opened and marked up ("Attached documents: 1 of 3 opened. Not opened: ... Marked up: ..."). On templates where approvals can carry markups, the completion email adds "Approved with comments. Marked up: ..." or "Approved as-is: none of the 3 attached documents were marked up."
+
+**Routing approvals with comments in Flow.** Treat "signed" as two outcomes, not one, so the comments on an approval with comments aren't lost on the way to the next step. In a record-triggered Flow on **Portwood Signature Request**, when **Status** changes to **Signed**, add a Decision on **Marked-Up Documents** greater than 0. On that path, update your own record (found through the request's **Related Record Id**) to say it was approved with comments, and create a task for whoever does the next piece of work, so the comments get incorporated. The other path is your usual approval.
+
+**Limits and notes:**
+
+- Marks are standard PDF annotations (ink and free text) appended to the original, so they open in Acrobat, Bluebeam and other readers. Shapes and clouds open there as freehand ink, not as editable shape objects.
+- After a reload, earlier pen and shape marks can't be selected or moved; text notes stay editable, and **Clear all** removes everything.
+- Pictures can't be added to a markup.
+- One copy is kept per signer and document: each save replaces the last, and the old file is deleted. Each document can be saved up to 20 times, and clearing marks doesn't reset that. A markup can be at most 2 MB or 10% larger than the original, whichever is more.
+- **A markup file is the signer's own content.** Portwood checks its size, that it comes from the signer's own link, and which copy it was built on. It doesn't check what the marks draw. Treat it like a file the signer emailed back.
+- **Your own permission sets?** Give admins edit on the template's Attached Document Markup field, and senders read on the Markup fields of Portwood Signer Attachment and on Marked-Up Documents. The Site guest user needs nothing beyond §10.3.1.
 
 ### 10.4 Sequential vs parallel
 
@@ -3111,7 +3161,9 @@ Any signer can decline with an optional reason. On decline:
 
 - The request is marked Declined.
 - Pending signers are NOT emailed.
-- The creator receives a decline notification with the reason.
+- The creator receives a decline notification with the reason. For a request with attached documents, it also says which documents the signer opened and marked up (§10.3.2).
+
+A request that's already finished (signed, cancelled, or declined by another signer) can't be declined.
 
 **Hiding the Decline button (v3.57+).** For formal or binding documents where you don't want signers to have a one-click way to refuse, you can turn the signer's **Decline** button off. A **Hide Decline Button** switch in the Command Hub's **Signature Settings** tab (§13.2) hides it on every signing page; a matching switch on an individual Portwood Template (Command Hub → My Templates → edit) hides it just for that template's requests. Both are off by default, so the button shows everywhere unless you turn one on. The switch is checked each time a signer opens their link, so turning it on hides Decline on requests that already went out, not just new ones — and the button is genuinely disabled, not merely hidden from view. A request sent from a source document with no template follows the org-wide switch alone.
 
