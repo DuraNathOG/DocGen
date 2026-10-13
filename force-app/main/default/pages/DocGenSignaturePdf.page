@@ -3256,36 +3256,74 @@
                         function startPinch(e) {
                             st.pinch = e.touches.length === 2 ? { d: spread(e.touches), m: middle(e.touches) } : null;
                         }
-                        scroller.addEventListener('touchstart', startPinch, { passive: true });
+                        // A touch's events all go to the element it first landed on, even after that
+                        // element leaves the page, and PDF.js replaces the elements under the fingers
+                        // when it redraws at a new zoom: listening on the box, a pinch or two-finger
+                        // drag stopped a few pixels in, at the first redraw. So the gesture is followed
+                        // on the touched elements themselves until the fingers lift.
+                        var touched = [];
+                        function follow(node) {
+                            if (!node || touched.indexOf(node) >= 0) return;
+                            node.addEventListener('touchmove', pinchMove, { passive: false });
+                            node.addEventListener('touchend', pinchEnd);
+                            node.addEventListener('touchcancel', pinchCancel);
+                            touched.push(node);
+                        }
+                        function unfollow() {
+                            touched.forEach(function (node) {
+                                node.removeEventListener('touchmove', pinchMove);
+                                node.removeEventListener('touchend', pinchEnd);
+                                node.removeEventListener('touchcancel', pinchCancel);
+                            });
+                            touched = [];
+                        }
+                        // Fingers on different elements each get the event; handle it once.
+                        function firstSight(e) {
+                            if (e.dgPinchSeen) return false;
+                            e.dgPinchSeen = true;
+                            return true;
+                        }
                         scroller.addEventListener(
-                            'touchmove',
+                            'touchstart',
                             function (e) {
-                                if (!st.pinch || e.touches.length !== 2) {
-                                    return;
-                                }
-                                e.preventDefault();
-                                var d = spread(e.touches);
-                                var m = middle(e.touches);
-                                // Fingers dragging together wobble apart a little; only a real
-                                // change in their spread zooms, so a two-finger drag just moves.
-                                if (d > 0 && Math.abs(d / st.pinch.d - 1) >= PINCH_DEADBAND) {
-                                    zoomBy(st, d / st.pinch.d, m[0], m[1]);
-                                    st.pinch.d = d;
-                                }
-                                scroller.scrollLeft -= m[0] - st.pinch.m[0];
-                                scroller.scrollTop -= m[1] - st.pinch.m[1];
-                                st.pinch.m = m;
+                                Array.prototype.forEach.call(e.touches, function (t) {
+                                    follow(t.target);
+                                });
+                                startPinch(e);
                             },
-                            { passive: false }
+                            { passive: true }
                         );
-                        scroller.addEventListener('touchend', function (e) {
+                        function pinchMove(e) {
+                            if (!firstSight(e) || !st.pinch || e.touches.length !== 2) {
+                                return;
+                            }
+                            e.preventDefault();
+                            var d = spread(e.touches);
+                            var m = middle(e.touches);
+                            // Fingers dragging together wobble apart a little; only a real
+                            // change in their spread zooms, so a two-finger drag just moves.
+                            if (d > 0 && Math.abs(d / st.pinch.d - 1) >= PINCH_DEADBAND) {
+                                zoomBy(st, d / st.pinch.d, m[0], m[1]);
+                                st.pinch.d = d;
+                            }
+                            scroller.scrollLeft -= m[0] - st.pinch.m[0];
+                            scroller.scrollTop -= m[1] - st.pinch.m[1];
+                            st.pinch.m = m;
+                        }
+                        function pinchEnd(e) {
+                            if (!firstSight(e)) return;
                             startPinch(e); // two left: carry on; fewer: done
-                            if (!e.touches.length && st.touchReset) st.touchReset();
-                        });
-                        scroller.addEventListener('touchcancel', function () {
+                            if (!e.touches.length) {
+                                unfollow();
+                                if (st.touchReset) st.touchReset();
+                            }
+                        }
+                        function pinchCancel(e) {
+                            if (!firstSight(e)) return;
                             st.pinch = null;
+                            unfollow();
                             if (st.touchReset) st.touchReset();
-                        });
+                        }
 
                         // Mouse drag-to-pan (the hand tool). Touch already pans natively.
                         scroller.addEventListener('pointerdown', function (e) {
